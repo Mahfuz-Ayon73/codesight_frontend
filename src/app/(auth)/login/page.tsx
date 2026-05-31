@@ -2,7 +2,11 @@ import Link from "next/link";
 import AuthPageBackgroundDesign from "@/components/UI/AuthPage-Background-Design";
 import SignInForm from "@/components/Authentication/SignInForm";
 
-export default function LoginPage() {
+type Props = { searchParams: Promise<{ registered?: string }> };
+
+export default async function LoginPage({ searchParams }: Props) {
+  const { registered } = await searchParams;
+
   return (
     <AuthPageBackgroundDesign maxWidth="max-w-4xl">
       <div className="flex w-full min-h-[450px] overflow-hidden rounded-2xl border border-white/30 bg-white/20 shadow-2xl backdrop-blur-md">
@@ -28,6 +32,11 @@ export default function LoginPage() {
 
         {/* Right — form */}
         <div className="flex flex-1 flex-col justify-center px-14 py-16">
+          {registered ? (
+            <div className="mb-4 rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700">
+              Account created! Check your email to verify before signing in.
+            </div>
+          ) : null}
           <h2 className="mb-1 text-xl font-semibold text-zinc-800 text-center">Welcome to CodeSight</h2>
           <p className="mb-4 text-sm font-normal text-zinc-500 text-center">Login to your Account</p>
           <SignInForm />

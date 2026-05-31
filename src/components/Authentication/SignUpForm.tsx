@@ -1,16 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import { signUpAction } from "@/actions/auth.action";
 import Button from "@/components/Button/Button";
 import InputField from "@/components/InputField/InputField";
 
 export default function SignUpForm() {
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
@@ -19,8 +19,7 @@ export default function SignUpForm() {
     setError(null);
     const form = new FormData(e.currentTarget);
     const password = String(form.get("password"));
-    const confirmPassword = String(form.get("confirmPassword"));
-    if (password !== confirmPassword) {
+    if (password !== String(form.get("confirmPassword"))) {
       setError("Passwords do not match");
       return;
     }
@@ -32,7 +31,8 @@ export default function SignUpForm() {
         email: String(form.get("email")),
         password,
       });
-      setDone(true);
+      // Redirect to login with a hint to verify email
+      router.push("/login?registered=1");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign up failed");
     } finally {
@@ -40,28 +40,16 @@ export default function SignUpForm() {
     }
   }
 
-  if (done) {
-    return (
-      <div className="rounded-xl border bg-white p-6 text-center shadow-sm">
-        <p className="text-sm text-zinc-600">Check your email to verify your account.</p>
-        <Link href="/login" className="mt-4 inline-block text-sm font-medium underline">Sign in</Link>
-      </div>
-    );
-  }
-
   return (
     <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-3">
 
-      {/* Row 1: First name + Last name */}
       <InputField label="First name" name="firstName" required />
       <InputField label="Last name" name="lastName" required />
 
-      {/* Row 2: Email full width */}
       <div className="col-span-2">
         <InputField label="Email" name="email" type="email" required />
       </div>
 
-      {/* Row 3: Password + Confirm password */}
       <div className="flex flex-col gap-1">
         <label className="text-sm font-medium text-zinc-700">Password</label>
         <div className="relative">
@@ -71,12 +59,8 @@ export default function SignUpForm() {
             required
             className="w-full rounded-lg border border-zinc-300/60 bg-white/40 px-3 py-2 pr-9 text-sm outline-none placeholder:text-zinc-400 focus:border-cyan-400 focus:bg-white/60 focus:ring-1 focus:ring-cyan-400 transition"
           />
-          <button
-            type="button"
-            onClick={() => setShowPassword(v => !v)}
-            className="absolute inset-y-0 right-2 flex items-center text-zinc-400 hover:text-zinc-600"
-            tabIndex={-1}
-          >
+          <button type="button" onClick={() => setShowPassword(v => !v)}
+            className="absolute inset-y-0 right-2 flex items-center text-zinc-400 hover:text-zinc-600" tabIndex={-1}>
             {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
           </button>
         </div>
@@ -91,12 +75,8 @@ export default function SignUpForm() {
             required
             className="w-full rounded-lg border border-zinc-300/60 bg-white/40 px-3 py-2 pr-9 text-sm outline-none placeholder:text-zinc-400 focus:border-cyan-400 focus:bg-white/60 focus:ring-1 focus:ring-cyan-400 transition"
           />
-          <button
-            type="button"
-            onClick={() => setShowConfirm(v => !v)}
-            className="absolute inset-y-0 right-2 flex items-center text-zinc-400 hover:text-zinc-600"
-            tabIndex={-1}
-          >
+          <button type="button" onClick={() => setShowConfirm(v => !v)}
+            className="absolute inset-y-0 right-2 flex items-center text-zinc-400 hover:text-zinc-600" tabIndex={-1}>
             {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
           </button>
         </div>
