@@ -1,16 +1,38 @@
 import Link from "next/link";
 import AuthPageBackgroundDesign from "@/components/UI/AuthPage-Background-Design";
 import SignUpForm from "@/components/Authentication/SignUpForm";
-import Logo from "@/components/Logo/logo";
 
 export default function SignupPage() {
   return (
-    <AuthPageBackgroundDesign>
-      <div className="mb-6 flex justify-center"><Logo /></div>
-      <SignUpForm />
-      <p className="mt-4 text-center text-sm text-zinc-600">
-        Have an account? <Link href="/login" className="font-medium underline">Sign in</Link>
-      </p>
+    <AuthPageBackgroundDesign maxWidth="max-w-[950px]">
+      <div className="flex w-full min-h-[450px] overflow-hidden rounded-2xl border border-white/30 bg-white/20 shadow-2xl backdrop-blur-md">
+
+        {/* Left — branding */}
+        <div className="flex flex-[0.7] flex-col justify-center gap-5 px-10 py-16">
+          <h1 className="text-5xl font-bold tracking-tight text-zinc-800">
+            Code<span className="text-cyan-500">Sight</span>
+          </h1>
+          <p className="text-sm leading-relaxed text-zinc-600">
+            Analyze your codebase, track quality metrics, and collaborate with your team — all in one place.
+          </p>
+          <p className="mt-6 text-xs text-zinc-500">
+            Already have an account?{" "}
+            <Link href="/login" className="font-medium text-cyan-600 underline underline-offset-2">
+              Sign in
+            </Link>
+          </p>
+        </div>
+
+        {/* Divider */}
+        <div className="w-px h-64 my-auto bg-gray-300/70" />
+
+        {/* Right — form */}
+        <div className="flex flex-[0.85] flex-col justify-center px-6 py-16 ">
+          <h2 className="mb-6 text-xl font-semibold text-zinc-800 text-center">Create your Account</h2>
+          <SignUpForm />
+        </div>
+
+      </div>
     </AuthPageBackgroundDesign>
   );
 }

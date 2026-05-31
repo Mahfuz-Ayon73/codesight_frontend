@@ -28,7 +28,8 @@ export default function LoginPage() {
 
         {/* Right — form */}
         <div className="flex flex-1 flex-col justify-center px-14 py-16">
-          <h2 className="mb-6 text-xl font-semibold text-zinc-800 text-center">Sign in to your Account</h2>
+          <h2 className="mb-1 text-xl font-semibold text-zinc-800 text-center">Welcome to CodeSight</h2>
+          <p className="mb-4 text-sm font-normal text-zinc-500 text-center">Login to your Account</p>
           <SignInForm />
         </div>
 

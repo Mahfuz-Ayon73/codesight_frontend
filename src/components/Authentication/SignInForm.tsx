@@ -54,8 +54,8 @@ export default function SignInForm() {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <InputField label="Email" name="email" type="email" required />
-      <InputField label="Password" name="password" type="password" required />
+      <InputField label="Email" name="email" type="email" required/>
+      <InputField label="Password" name="password" type="password" required/>
 
       {error && (
         <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
