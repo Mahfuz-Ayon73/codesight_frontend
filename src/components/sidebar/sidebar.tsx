@@ -16,7 +16,7 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="flex w-52 flex-col border-r border-zinc-200 bg-white">
+    <aside className="flex w-52 flex-col border-r border-zinc-200 bg-white h-full">
       {/* Create project CTA */}
       <div className="p-3 border-b border-zinc-100">
         <Link

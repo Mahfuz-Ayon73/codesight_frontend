@@ -1,6 +1,7 @@
 export type AnalysisStatus =
   | "PENDING_UPLOAD"
   | "READY_FOR_ANALYSIS"
+  | "IN_PROGRESS"
   | "ANALYZING"
   | "COMPLETED"
   | "FAILED";
@@ -47,4 +48,46 @@ export interface InviteProjectMemberInput {
 
 export interface UpdateProjectMemberRoleInput {
   role: ProjectMemberRole;
+}
+
+// Analysis blueprint types
+export interface BlueprintNode {
+  id: number;
+  canonical_path: string;
+  centrality_score: number;
+  is_god_file: boolean;
+  execution_role: "ENTRY_POINT" | "TERMINAL_SINK" | "INTERNAL";
+  external_dependencies: string[];
+  text_summary: string;
+}
+
+export interface BlueprintEdge {
+  source_id: number;
+  target_id: number;
+  weight: number;
+}
+
+export interface BlueprintCluster {
+  cluster_id: string;
+  suggested_title: string;
+  functional_summary: string;
+  node_ids: number[];
+  nodes: string[]; // canonical paths
+}
+
+export interface BlueprintMetadata {
+  detected_paradigm: string;
+  total_nodes_indexed: number;
+  total_edges: number;
+  total_clusters: number;
+}
+
+export interface Blueprint {
+  schema_version: string;
+  project_id: string;
+  project_metadata: BlueprintMetadata;
+  nodes: BlueprintNode[];
+  edges: BlueprintEdge[];
+  clusters: BlueprintCluster[];
+  execution_sequences: unknown[];
 }

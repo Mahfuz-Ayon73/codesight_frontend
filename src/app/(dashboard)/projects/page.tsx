@@ -4,7 +4,7 @@ import Link from "next/link";
 import { organizationService } from "@/services/organization/organization.service";
 import { projectService } from "@/services/project/project.service";
 import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
-import { Clock, FolderOpen, Plus } from "lucide-react";
+import { Clock, FolderOpen } from "lucide-react";
 
 export default async function ProjectsPage() {
   const cookieStore = await cookies();
@@ -33,15 +33,6 @@ export default async function ProjectsPage() {
               : "All your projects will appear here"}
           </p>
         </div>
-        {organizations.length > 0 && (
-          <Link
-            href={`/organizations/${organizations[0].id}/projects/new`}
-            className="flex items-center gap-2 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-600 transition"
-          >
-            <Plus size={15} />
-            New Project
-          </Link>
-        )}
       </div>
 
       {allProjects.length === 0 ? (

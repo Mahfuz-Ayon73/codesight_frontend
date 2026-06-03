@@ -5,6 +5,7 @@ import type {
   CreateProjectInput,
   InviteProjectMemberInput,
   UpdateProjectMemberRoleInput,
+  Blueprint,
 } from "@/types/project/project.schema";
 
 const base = (orgId: string) => `/api/v1/organizations/${orgId}/projects`;
@@ -72,6 +73,11 @@ export const projectService = {
   ) =>
     apiFetch<void>(`${base(orgId)}/${projectId}/members/${userId}`, {
       method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+
+  getBlueprint: (token: string, orgId: string, projectId: string) =>
+    apiFetch<Blueprint>(`${base(orgId)}/${projectId}/blueprint`, {
       headers: { Authorization: `Bearer ${token}` },
     }),
 };
