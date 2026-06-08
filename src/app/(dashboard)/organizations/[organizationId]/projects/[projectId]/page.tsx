@@ -24,12 +24,7 @@ export default async function ProjectPage({ params }: Props) {
   if (!project) notFound();
 
   const needsUpload = project.analysisStatus === "PENDING_UPLOAD";
-  const isAnalysing =
-    project.analysisStatus === "READY_FOR_ANALYSIS" ||
-    project.analysisStatus === "IN_PROGRESS" ||
-    project.analysisStatus === "ANALYZING";
-  const isCompleted = project.analysisStatus === "COMPLETED";
-  const isFailed = project.analysisStatus === "FAILED";
+  const showAnalysisView = !needsUpload;
 
   const sourceIcon = {
     GITHUB: <GitBranch size={13} />,
@@ -65,8 +60,8 @@ export default async function ProjectPage({ params }: Props) {
         <UploadCodebase organizationId={organizationId} projectId={projectId} />
       )}
 
-      {/* Analysis running or completed */}
-      {(isAnalysing || isCompleted || isFailed) && (
+      {/* Analysis view — shown for all states after upload */}
+      {showAnalysisView && (
         <AnalysisView
           organizationId={organizationId}
           projectId={projectId}
@@ -74,23 +69,7 @@ export default async function ProjectPage({ params }: Props) {
         />
       )}
 
-      {/* Status cards — only when not in analysis view */}
-      {!needsUpload && !isAnalysing && !isCompleted && !isFailed && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <InfoCard label="Status" value={project.analysisStatus.replace(/_/g, " ")} />
-          <InfoCard
-            label="Uploaded"
-            value={project.uploadedAt ? new Date(project.uploadedAt).toLocaleDateString() : "—"}
-          />
-          <InfoCard
-            label="Created"
-            value={project.createdAt ? new Date(project.createdAt).toLocaleDateString() : "—"}
-          />
-          <InfoCard label="Members" value={String(members.length)} />
-        </div>
-      )}
-
-      {project.uploadErrorMessage && !isAnalysing && (
+      {project.uploadErrorMessage && (
         <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">
           {project.uploadErrorMessage}
         </div>

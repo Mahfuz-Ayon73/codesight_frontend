@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Loader2, ChevronDown, ChevronRight, FileCode, AlertCircle, Layers, Crown, ArrowRight, ArrowLeft } from "lucide-react";
-import type { Blueprint, BlueprintCluster, AnalysisStatus } from "@/types/project/project.schema";
+import {
+  Loader2, ChevronDown, ChevronRight, FileCode,
+  AlertCircle, Layers, Crown, ArrowRight, ArrowLeft,
+  CheckCircle, PlayCircle, BarChart2
+} from "lucide-react";
+import type { Blueprint, AnalysisStatus } from "@/types/project/project.schema";
 
 type Props = {
   organizationId: string;
@@ -10,100 +14,153 @@ type Props = {
   initialStatus: AnalysisStatus;
 };
 
+type ViewState = "ready" | "analyzing" | "done" | "results" | "failed";
+
+function toViewState(status: AnalysisStatus): ViewState {
+  if (status === "READY_FOR_ANALYSIS") return "ready";
+  if (status === "IN_PROGRESS" || status === "ANALYZING") return "analyzing";
+  if (status === "COMPLETED") return "done";
+  if (status === "FAILED") return "failed";
+  return "ready";
+}
+
 export default function AnalysisView({ organizationId, projectId, initialStatus }: Props) {
-  const [status, setStatus] = useState<AnalysisStatus>(initialStatus);
+  const [view, setView] = useState<ViewState>(toViewState(initialStatus));
   const [blueprint, setBlueprint] = useState<Blueprint | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [triggering, setTriggering] = useState(false);
 
-  const fetchBlueprint = useCallback(async () => {
-    const res = await fetch(
-      `/api/project/blueprint?organizationId=${organizationId}&projectId=${projectId}`
-    );
-    if (!res.ok) throw new Error("Failed to load analysis results");
-    return res.json() as Promise<Blueprint>;
-  }, [organizationId, projectId]);
-
+  // Poll status while analyzing
   const pollStatus = useCallback(async () => {
-    const res = await fetch(
-      `/api/project/status?organizationId=${organizationId}&projectId=${projectId}`
-    );
-    if (!res.ok) return;
+    const res = await fetch(`/api/project/status?organizationId=${organizationId}&projectId=${projectId}`);
+    if (!res.ok) return null;
     const data = await res.json();
     return data.analysisStatus as AnalysisStatus;
   }, [organizationId, projectId]);
 
   useEffect(() => {
-    if (status === "COMPLETED") {
-      fetchBlueprint()
-        .then(setBlueprint)
-        .catch((e) => setError(e.message));
-      return;
-    }
-
-    if (status === "FAILED") return;
-
-    // Poll every 3 seconds while analysis is running
+    if (view !== "analyzing") return;
     const interval = setInterval(async () => {
-      const newStatus = await pollStatus();
-      if (!newStatus) return;
-      setStatus(newStatus);
-      if (newStatus === "COMPLETED") {
-        clearInterval(interval);
-        fetchBlueprint()
-          .then(setBlueprint)
-          .catch((e) => setError(e.message));
-      } else if (newStatus === "FAILED") {
-        clearInterval(interval);
-      }
+      const status = await pollStatus();
+      if (!status) return;
+      if (status === "COMPLETED") { clearInterval(interval); setView("done"); }
+      else if (status === "FAILED") { clearInterval(interval); setView("failed"); }
     }, 3000);
-
     return () => clearInterval(interval);
-  }, [status, fetchBlueprint, pollStatus]);
+  }, [view, pollStatus]);
 
-  // --- Analysing state ---
-  if (status !== "COMPLETED" && status !== "FAILED") {
+  async function handleTriggerAnalysis() {
+    setTriggering(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/project/analyze?organizationId=${organizationId}&projectId=${projectId}`,
+        { method: "POST" }
+      );
+      if (!res.ok) throw new Error("Failed to start analysis");
+      setView("analyzing");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start analysis");
+    } finally {
+      setTriggering(false);
+    }
+  }
+
+  async function handleGetResults() {
+    setError(null);
+    try {
+      const res = await fetch(`/api/project/blueprint?organizationId=${organizationId}&projectId=${projectId}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.message ?? "Failed to load results");
+      }
+      const data = await res.json() as Blueprint;
+      setBlueprint(data);
+      setView("results");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load results");
+    }
+  }
+
+  // --- Ready for analysis ---
+  if (view === "ready") {
     return (
-      <div className="flex flex-col items-center justify-center rounded-2xl border border-zinc-200 bg-white py-16 text-center px-6 gap-4">
-        <div className="relative">
-          <div className="w-12 h-12 rounded-full border-4 border-cyan-100 border-t-cyan-500 animate-spin" />
-        </div>
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-green-200 bg-green-50 py-12 text-center px-6 gap-4">
+        <CheckCircle size={32} className="text-green-500" />
         <div>
-          <p className="text-sm font-semibold text-zinc-800">Analysing your codebase</p>
-          <p className="text-xs text-zinc-400 mt-1">
-            Building dependency graph, clustering modules…
-          </p>
+          <p className="text-sm font-semibold text-green-800">Codebase uploaded successfully</p>
+          <p className="text-xs text-green-600 mt-1">Ready to analyze. Click below to start.</p>
         </div>
-        <span className="text-xs font-mono bg-zinc-100 text-zinc-500 px-3 py-1 rounded-full">
-          {status.replace(/_/g, " ")}
-        </span>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        <button
+          onClick={handleTriggerAnalysis}
+          disabled={triggering}
+          className="flex items-center gap-2 rounded-lg bg-green-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-green-700 transition disabled:opacity-60"
+        >
+          {triggering ? <Loader2 size={15} className="animate-spin" /> : <PlayCircle size={15} />}
+          {triggering ? "Starting…" : "Analyze Codebase"}
+        </button>
       </div>
     );
   }
 
-  // --- Failed state ---
-  if (status === "FAILED") {
+  // --- Analyzing ---
+  if (view === "analyzing") {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-zinc-200 bg-white py-16 text-center px-6 gap-4">
+        <div className="w-12 h-12 rounded-full border-4 border-cyan-100 border-t-cyan-500 animate-spin" />
+        <div>
+          <p className="text-sm font-semibold text-zinc-800">Analysing your codebase</p>
+          <p className="text-xs text-zinc-400 mt-1">Building dependency graph, clustering modules…</p>
+        </div>
+        <span className="text-xs font-mono bg-zinc-100 text-zinc-500 px-3 py-1 rounded-full">IN PROGRESS</span>
+      </div>
+    );
+  }
+
+  // --- Done, waiting for user to fetch results ---
+  if (view === "done") {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-cyan-200 bg-cyan-50 py-12 text-center px-6 gap-4">
+        <BarChart2 size={32} className="text-cyan-500" />
+        <div>
+          <p className="text-sm font-semibold text-cyan-800">Analysis complete</p>
+          <p className="text-xs text-cyan-600 mt-1">Your codebase has been mapped into clusters.</p>
+        </div>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        <button
+          onClick={handleGetResults}
+          className="flex items-center gap-2 rounded-lg bg-cyan-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-cyan-700 transition"
+        >
+          <BarChart2 size={15} />
+          Get Results
+        </button>
+      </div>
+    );
+  }
+
+  // --- Failed ---
+  if (view === "failed") {
     return (
       <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-5">
         <AlertCircle size={18} className="text-red-500 mt-0.5 shrink-0" />
         <div>
           <p className="text-sm font-semibold text-red-700">Analysis failed</p>
-          <p className="text-xs text-red-500 mt-1">
-            Make sure the Python analysis service is running on port 8000, then re-upload the codebase.
-          </p>
+          <p className="text-xs text-red-500 mt-1">Make sure the Python analysis service is running on port 8000.</p>
+          <button
+            onClick={handleTriggerAnalysis}
+            disabled={triggering}
+            className="mt-3 flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 transition disabled:opacity-60"
+          >
+            {triggering ? <Loader2 size={12} className="animate-spin" /> : <PlayCircle size={12} />}
+            Retry Analysis
+          </button>
         </div>
       </div>
     );
   }
 
-  if (error) {
-    return (
-      <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-5">
-        <AlertCircle size={18} className="text-red-500 mt-0.5 shrink-0" />
-        <p className="text-sm text-red-600">{error}</p>
-      </div>
-    );
-  }
-
+  // --- Results ---
   if (!blueprint) {
     return (
       <div className="flex items-center gap-2 text-sm text-zinc-400 py-8">
@@ -116,31 +173,23 @@ export default function AnalysisView({ organizationId, projectId, initialStatus 
 }
 
 // ---------------------------------------------------------------------------
-// Blueprint results view
+// Blueprint results
 // ---------------------------------------------------------------------------
 
 function BlueprintResults({ blueprint }: { blueprint: Blueprint }) {
   const meta = blueprint.project_metadata;
-
   return (
     <div className="flex flex-col gap-6">
-      {/* Summary bar */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <MetaStat label="Paradigm" value={meta.detected_paradigm.replace(/_/g, " ")} />
         <MetaStat label="Files indexed" value={String(meta.total_nodes_indexed)} />
         <MetaStat label="Dependencies" value={String(meta.total_edges)} />
         <MetaStat label="Clusters" value={String(meta.total_clusters)} />
       </div>
-
-      {/* Clusters */}
       <div className="flex flex-col gap-3">
         <p className="text-sm font-semibold text-zinc-700">Architectural Clusters</p>
         {blueprint.clusters.map((cluster) => (
-          <ClusterCard
-            key={cluster.cluster_id}
-            cluster={cluster}
-            nodes={blueprint.nodes}
-          />
+          <ClusterCard key={cluster.cluster_id} cluster={cluster} nodes={blueprint.nodes} />
         ))}
       </div>
     </div>
@@ -156,30 +205,15 @@ function MetaStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Cluster card — collapsible file list
-// ---------------------------------------------------------------------------
-
-function ClusterCard({
-  cluster,
-  nodes,
-}: {
-  cluster: BlueprintCluster;
-  nodes: Blueprint["nodes"];
-}) {
+function ClusterCard({ cluster, nodes }: { cluster: Blueprint["clusters"][number]; nodes: Blueprint["nodes"] }) {
   const [open, setOpen] = useState(false);
-
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-  const clusterNodes = cluster.node_ids
-    .map((id) => nodeMap.get(id))
-    .filter(Boolean) as Blueprint["nodes"];
-
+  const clusterNodes = cluster.node_ids.map((id) => nodeMap.get(id)).filter(Boolean) as Blueprint["nodes"];
   const godFiles = clusterNodes.filter((n) => n.is_god_file);
   const entryPoints = clusterNodes.filter((n) => n.execution_role === "ENTRY_POINT");
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white overflow-hidden">
-      {/* Header */}
       <button
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-zinc-50 transition"
@@ -188,24 +222,17 @@ function ClusterCard({
           <Layers size={15} />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-zinc-800 truncate">
-            {cluster.suggested_title || cluster.cluster_id}
-          </p>
+          <p className="text-sm font-semibold text-zinc-800 truncate">{cluster.suggested_title || cluster.cluster_id}</p>
           {cluster.functional_summary && (
             <p className="text-xs text-zinc-400 truncate mt-0.5">{cluster.functional_summary}</p>
           )}
         </div>
         <div className="flex items-center gap-3 shrink-0">
           <span className="text-xs text-zinc-400">{cluster.node_ids.length} files</span>
-          {open ? (
-            <ChevronDown size={14} className="text-zinc-400" />
-          ) : (
-            <ChevronRight size={14} className="text-zinc-400" />
-          )}
+          {open ? <ChevronDown size={14} className="text-zinc-400" /> : <ChevronRight size={14} className="text-zinc-400" />}
         </div>
       </button>
 
-      {/* Badge row */}
       {(godFiles.length > 0 || entryPoints.length > 0) && (
         <div className="flex gap-2 px-4 pb-2.5 flex-wrap">
           {godFiles.length > 0 && (
@@ -221,12 +248,9 @@ function ClusterCard({
         </div>
       )}
 
-      {/* File list */}
       {open && (
         <div className="border-t border-zinc-100 divide-y divide-zinc-50">
-          {clusterNodes.map((node) => (
-            <FileRow key={node.id} node={node} />
-          ))}
+          {clusterNodes.map((node) => <FileRow key={node.id} node={node} />)}
         </div>
       )}
     </div>
@@ -251,13 +275,9 @@ function FileRow({ node }: { node: Blueprint["nodes"][number] }) {
         <div className="flex items-center gap-1.5">
           <span className="text-xs font-medium text-zinc-700 truncate">{fileName}</span>
           {roleIcon}
-          {node.is_god_file && (
-            <Crown size={10} className="text-amber-500 shrink-0" />
-          )}
+          {node.is_god_file && <Crown size={10} className="text-amber-500 shrink-0" />}
         </div>
-        {dir && (
-          <p className="text-xs text-zinc-400 truncate">{dir}</p>
-        )}
+        {dir && <p className="text-xs text-zinc-400 truncate">{dir}</p>}
       </div>
       <span className="text-xs text-zinc-300 tabular-nums shrink-0">
         {(node.centrality_score * 100).toFixed(1)}%
