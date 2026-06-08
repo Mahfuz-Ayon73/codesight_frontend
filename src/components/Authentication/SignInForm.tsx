@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signInAction, resendVerificationAction } from "@/actions/auth.action";
-import { listOrganizationsAction } from "@/actions/organization.action";
 import Button from "@/components/Button/Button";
 import InputField from "@/components/InputField/InputField";
 import { ApiError } from "@/lib/exception";
@@ -27,12 +26,7 @@ export default function SignInForm() {
 
     try {
       await signInAction({ email, password: String(form.get("password")) });
-      const orgs = await listOrganizationsAction().catch(() => []);
-      if (orgs.length === 0) {
-        router.push("/onboarding/create-organization");
-      } else {
-        router.push("/");
-      }
+      router.push("/");
       router.refresh();
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {

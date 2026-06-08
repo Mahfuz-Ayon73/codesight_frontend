@@ -1,31 +1,45 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useOrganizations } from "@/hooks/Organization/Organization.hooks";
 import { LayoutDashboard, FolderOpen, BarChart2, Users, Settings, Plus } from "lucide-react";
 
 const navItems = [
-  { label: "My Workspace", href: "/",                    icon: LayoutDashboard },
-  { label: "Projects",      href: "/projects",            icon: FolderOpen },
-  { label: "Visualization", href: "/visualization",       icon: BarChart2 },
-  { label: "Collaboration", href: "/collaboration",       icon: Users },
-  { label: "Settings",      href: "/settings",            icon: Settings },
+  { label: "My Workspace", href: "/",             icon: LayoutDashboard },
+  { label: "Projects",     href: "/projects",     icon: FolderOpen },
+  { label: "Visualization",href: "/visualization",icon: BarChart2 },
+  { label: "Collaboration",href: "/collaboration", icon: Users },
+  { label: "Settings",     href: "/settings",     icon: Settings },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { organizations, loading } = useOrganizations();
+
+  function handleCreateProject() {
+    if (loading) return;
+    const firstOrgId = organizations?.[0]?.id;
+    if (firstOrgId) {
+      router.push(`/organizations/${firstOrgId}/projects/new`);
+    } else {
+      router.push("/onboarding/create-organization");
+    }
+  }
 
   return (
     <aside className="flex w-52 flex-col border-r border-zinc-200 bg-white h-full">
       {/* Create project CTA */}
       <div className="p-3 border-b border-zinc-100">
-        <Link
-          href="/create-organization"
-          className="flex items-center justify-center gap-2 w-full rounded-lg bg-cyan-500 px-3 py-2 text-sm font-medium text-white hover:bg-cyan-600 transition"
+        <button
+          onClick={handleCreateProject}
+          disabled={loading}
+          className="flex items-center justify-center gap-2 w-full rounded-lg bg-cyan-500 px-3 py-2 text-sm font-medium text-white hover:bg-cyan-600 transition disabled:opacity-60"
         >
           <Plus size={15} />
           Create Project
-        </Link>
+        </button>
       </div>
 
       {/* Nav links */}

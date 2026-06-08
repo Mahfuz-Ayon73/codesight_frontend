@@ -4,7 +4,7 @@ import Link from "next/link";
 import { organizationService } from "@/services/organization/organization.service";
 import { projectService } from "@/services/project/project.service";
 import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
-import { Clock, FolderOpen } from "lucide-react";
+import { Clock, FolderOpen, Plus } from "lucide-react";
 
 export default async function ProjectsPage() {
   const cookieStore = await cookies();

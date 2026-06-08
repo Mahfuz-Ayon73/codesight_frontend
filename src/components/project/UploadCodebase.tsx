@@ -13,6 +13,7 @@ type Props = {
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
+const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB per chunk
 
 export default function UploadCodebase({ organizationId, projectId }: Props) {
   const router = useRouter();
@@ -26,6 +27,7 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
   const [selectedZip, setSelectedZip] = useState<File | null>(null);
   const [status, setStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
 
   const base = `${API_BASE}/api/v1/organizations/${organizationId}/projects/${projectId}`;
 
@@ -36,9 +38,41 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
       ?.split("=")[1];
   }
 
+  async function uploadZipChunked(file: File, token: string | undefined) {
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    const uploadId = crypto.randomUUID();
+
+    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+      const start = chunkIndex * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, file.size);
+      const chunk = file.slice(start, end);
+
+      const form = new FormData();
+      form.append("chunk", chunk);
+      form.append("uploadId", uploadId);
+      form.append("chunkIndex", String(chunkIndex));
+      form.append("totalChunks", String(totalChunks));
+      form.append("fileName", file.name);
+
+      const res = await fetch(`${base}/upload/zip-chunk`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.message ?? `Chunk ${chunkIndex + 1}/${totalChunks} failed`);
+      }
+
+      setProgress(Math.round(((chunkIndex + 1) / totalChunks) * 100));
+    }
+  }
+
   async function handleUpload() {
     setStatus("uploading");
     setErrorMsg(null);
+    setProgress(0);
     const token = getToken();
 
     try {
@@ -59,19 +93,11 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
           const body = await res.json().catch(() => null);
           throw new Error(body?.message ?? "Folder upload failed");
         }
+
       } else if (method === "zip") {
         if (!selectedZip) { setErrorMsg("Please select a ZIP file."); setStatus("error"); return; }
-        const form = new FormData();
-        form.append("file", selectedZip);
-        const res = await fetch(`${base}/upload/zip`, {
-          method: "POST",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          body: form,
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => null);
-          throw new Error(body?.message ?? "ZIP upload failed");
-        }
+        await uploadZipChunked(selectedZip, token);
+
       } else {
         if (!githubUrl.trim()) { setErrorMsg("Please enter a GitHub URL."); setStatus("error"); return; }
         const res = await fetch(`${base}/upload/github`, {
@@ -122,8 +148,8 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
       <div className="flex gap-2">
         {(
           [
-            { key: "folder", label: "Folder",     icon: <FolderOpen size={14} /> },
-            { key: "zip",    label: "ZIP file",   icon: <Upload size={14} /> },
+            { key: "folder", label: "Folder", icon: <FolderOpen size={14} /> },
+            { key: "zip", label: "ZIP file", icon: <Upload size={14} /> },
             { key: "github", label: "GitHub URL", icon: <GitBranch size={14} /> },
           ] as { key: UploadMethod; label: string; icon: React.ReactNode }[]
         ).map(({ key, label, icon }) => (
@@ -142,7 +168,7 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
         ))}
       </div>
 
-      {/* Input area */}
+      {/* Folder input */}
       {method === "folder" && (
         <div
           onClick={() => folderRef.current?.click()}
@@ -151,9 +177,7 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
           <FolderOpen size={24} className="mb-2" />
           {selectedFiles && selectedFiles.length > 0 ? (
             <>
-              <span className="font-medium text-zinc-600">
-                {selectedFiles.length} file{selectedFiles.length !== 1 ? "s" : ""} selected
-              </span>
+              <span className="font-medium text-zinc-600">{selectedFiles.length} file{selectedFiles.length !== 1 ? "s" : ""} selected</span>
               <span className="text-xs mt-0.5 text-zinc-400">Click to change</span>
             </>
           ) : (
@@ -165,7 +189,7 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
           <input
             ref={folderRef}
             type="file"
-            // @ts-expect-error — webkitdirectory is non-standard but widely supported
+            // @ts-expect-error — webkitdirectory is non-standard
             webkitdirectory=""
             directory=""
             multiple
@@ -175,6 +199,7 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
         </div>
       )}
 
+      {/* ZIP input */}
       {method === "zip" && (
         <div
           onClick={() => zipRef.current?.click()}
@@ -185,7 +210,10 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
             <>
               <span className="font-medium text-zinc-600">{selectedZip.name}</span>
               <span className="text-xs mt-0.5 text-zinc-400">
-                {(selectedZip.size / 1024 / 1024).toFixed(1)} MB · Click to change
+                {selectedZip.size >= 1024 * 1024
+                  ? (selectedZip.size / 1024 / 1024).toFixed(1) + " MB"
+                  : (selectedZip.size / 1024).toFixed(1) + " KB"
+                } · Click to change
               </span>
             </>
           ) : (
@@ -206,6 +234,7 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
         </div>
       )}
 
+      {/* GitHub input */}
       {method === "github" && (
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
@@ -230,8 +259,24 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
               className="rounded-lg border border-zinc-300/60 bg-white px-3 py-2 text-sm outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition font-mono"
             />
             <p className="text-xs text-zinc-400">
-              Generate one at GitHub → Settings → Developer settings → Personal access tokens. Needs <code className="bg-zinc-100 px-1 rounded">repo</code> scope.
+              Generate at GitHub → Settings → Developer settings → Personal access tokens. Needs <code className="bg-zinc-100 px-1 rounded">repo</code> scope.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Progress bar */}
+      {status === "uploading" && method === "zip" && (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex justify-between text-xs text-zinc-400">
+            <span>Uploading…</span>
+            <span>{progress}%</span>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-zinc-100 overflow-hidden">
+            <div
+              className="h-full bg-cyan-500 transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
           </div>
         </div>
       )}
@@ -249,7 +294,7 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
         className="self-start flex items-center gap-2"
       >
         {status === "uploading"
-          ? <><Loader2 size={14} className="animate-spin" /> Uploading…</>
+          ? <><Loader2 size={14} className="animate-spin" /> {method === "zip" ? `${progress}%` : "Uploading…"}</>
           : "Upload"
         }
       </Button>
