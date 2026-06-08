@@ -13,7 +13,7 @@ type Props = {
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
-const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB per chunk
+const CHUNK_SIZE = 3 * 1024 * 1024; // 3MB per chunk — stays under Next.js proxy limits
 
 export default function UploadCodebase({ organizationId, projectId }: Props) {
   const router = useRouter();
@@ -38,9 +38,10 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
       ?.split("=")[1];
   }
 
-  async function uploadZipChunked(file: File, token: string | undefined) {
+  async function uploadZipChunked(file: File) {
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     const uploadId = crypto.randomUUID();
+    console.log(`[CHUNK] Starting chunked upload: ${file.name}, ${totalChunks} chunks of ${CHUNK_SIZE / 1024 / 1024}MB each`);
 
     for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
       const start = chunkIndex * CHUNK_SIZE;
@@ -54,15 +55,27 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
       form.append("totalChunks", String(totalChunks));
       form.append("fileName", file.name);
 
-      const res = await fetch(`${base}/upload/zip-chunk`, {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: form,
-      });
+      // Route through Next.js API proxy — token is read server-side from HttpOnly cookie
+      const url = `/api/upload/zip-chunk?organizationId=${organizationId}&projectId=${projectId}`;
+      console.log(`[CHUNK] Sending chunk ${chunkIndex + 1}/${totalChunks} (${(chunk.size / 1024).toFixed(0)}KB) to ${url}`);
+
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          body: form,
+        });
+      } catch (networkErr) {
+        console.error(`[CHUNK] Network error on chunk ${chunkIndex + 1}:`, networkErr);
+        throw new Error(`Network error on chunk ${chunkIndex + 1}/${totalChunks}: ${networkErr instanceof Error ? networkErr.message : String(networkErr)}`);
+      }
+
+      console.log(`[CHUNK] Response for chunk ${chunkIndex + 1}: status=${res.status}`);
 
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        throw new Error(body?.message ?? `Chunk ${chunkIndex + 1}/${totalChunks} failed`);
+        console.error(`[CHUNK] Server error on chunk ${chunkIndex + 1}:`, res.status, body);
+        throw new Error(`Server error on chunk ${chunkIndex + 1}/${totalChunks}: ${res.status} — ${body?.message ?? res.statusText}`);
       }
 
       setProgress(Math.round(((chunkIndex + 1) / totalChunks) * 100));
@@ -96,7 +109,7 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
 
       } else if (method === "zip") {
         if (!selectedZip) { setErrorMsg("Please select a ZIP file."); setStatus("error"); return; }
-        await uploadZipChunked(selectedZip, token);
+        await uploadZipChunked(selectedZip);
 
       } else {
         if (!githubUrl.trim()) { setErrorMsg("Please enter a GitHub URL."); setStatus("error"); return; }
@@ -120,7 +133,11 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
       setStatus("success");
       setTimeout(() => router.refresh(), 1200);
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Upload failed");
+      const message = err instanceof Error
+        ? `${err.name}: ${err.message}\n${err.stack ?? ""}`
+        : String(err);
+      console.error("[UPLOAD] Full error:", err);
+      setErrorMsg(message);
       setStatus("error");
     }
   }
@@ -282,9 +299,12 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
       )}
 
       {status === "error" && errorMsg && (
-        <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-600">
-          <AlertCircle size={14} />
-          {errorMsg}
+        <div className="flex flex-col gap-1 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-600">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={14} className="shrink-0" />
+            <span className="font-medium">Upload failed</span>
+          </div>
+          <pre className="text-xs whitespace-pre-wrap break-all mt-1">{errorMsg}</pre>
         </div>
       )}
 

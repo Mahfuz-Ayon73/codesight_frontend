@@ -10,35 +10,22 @@ type Props = {
   initialStatus: AnalysisStatus;
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
-
-function getToken() {
-  return document.cookie
-    .split("; ")
-    .find((c) => c.startsWith("codesight_token="))
-    ?.split("=")[1];
-}
-
 export default function AnalysisView({ organizationId, projectId, initialStatus }: Props) {
   const [status, setStatus] = useState<AnalysisStatus>(initialStatus);
   const [blueprint, setBlueprint] = useState<Blueprint | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const fetchBlueprint = useCallback(async () => {
-    const token = getToken();
     const res = await fetch(
-      `${API_BASE}/api/v1/organizations/${organizationId}/projects/${projectId}/blueprint`,
-      { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      `/api/project/blueprint?organizationId=${organizationId}&projectId=${projectId}`
     );
     if (!res.ok) throw new Error("Failed to load analysis results");
     return res.json() as Promise<Blueprint>;
   }, [organizationId, projectId]);
 
   const pollStatus = useCallback(async () => {
-    const token = getToken();
     const res = await fetch(
-      `${API_BASE}/api/v1/organizations/${organizationId}/projects/${projectId}`,
-      { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      `/api/project/status?organizationId=${organizationId}&projectId=${projectId}`
     );
     if (!res.ok) return;
     const data = await res.json();

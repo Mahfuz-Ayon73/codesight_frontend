@@ -5,6 +5,7 @@ import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
 import ProjectMembersPanel from "@/components/project/ProjectMembersPanel";
 import UploadCodebase from "@/components/project/UploadCodebase";
 import AnalysisView from "@/components/project/AnalysisView";
+import CodebaseActions from "@/components/project/CodebaseActions";
 import { GitBranch, FolderArchive, Folder } from "lucide-react";
 
 type Props = { params: Promise<{ organizationId: string; projectId: string }> };
@@ -40,16 +41,22 @@ export default async function ProjectPage({ params }: Props) {
     <div className="max-w-4xl mx-auto flex flex-col gap-6">
 
       {/* Header */}
-      <div>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          {!needsUpload && (
+            <div className="flex items-center gap-1.5 text-xs text-zinc-400 mb-1">
+              {sourceIcon}
+              <span>{project.sourceType?.replace(/_/g, " ")}</span>
+            </div>
+          )}
+          <h1 className="text-2xl font-bold text-zinc-900">{project.name}</h1>
+          {project.description && (
+            <p className="mt-1 text-sm text-zinc-500">{project.description}</p>
+          )}
+        </div>
+        {/* Reupload / Delete — shown once codebase has been uploaded */}
         {!needsUpload && (
-          <div className="flex items-center gap-1.5 text-xs text-zinc-400 mb-1">
-            {sourceIcon}
-            <span>{project.sourceType?.replace(/_/g, " ")}</span>
-          </div>
-        )}
-        <h1 className="text-2xl font-bold text-zinc-900">{project.name}</h1>
-        {project.description && (
-          <p className="mt-1 text-sm text-zinc-500">{project.description}</p>
+          <CodebaseActions organizationId={organizationId} projectId={projectId} />
         )}
       </div>
 

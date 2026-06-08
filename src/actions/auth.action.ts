@@ -8,7 +8,7 @@ import type { SignInInput, SignUpInput } from "@/types/auth/auth.schema";
 export async function signInAction(data: SignInInput) {
   const res = await authService.login(data);
   const cookieStore = await cookies();
-  cookieStore.set(AUTH_TOKEN_COOKIE, res.token, { httpOnly: true, path: "/" });
+  cookieStore.set(AUTH_TOKEN_COOKIE, res.token, { httpOnly: true, path: "/", sameSite: "lax" });
   return res.user;
 }
 
