@@ -1,12 +1,23 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import dynamic from "next/dynamic";
 import {
   Loader2, ChevronDown, ChevronRight, FileCode,
   AlertCircle, Layers, Crown, ArrowRight, ArrowLeft,
-  CheckCircle, PlayCircle, BarChart2
+  CheckCircle, PlayCircle, BarChart2, Network, List
 } from "lucide-react";
 import type { Blueprint, AnalysisStatus } from "@/types/project/project.schema";
+
+// Dynamically import the canvas to avoid SSR issues with React Flow
+const CodeSightCanvas = dynamic(() => import("@/components/canvas/CodeSightCanvas"), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-[600px] rounded-2xl flex items-center justify-center bg-[#0a0a14] border border-white/5">
+      <Loader2 size={20} className="animate-spin text-indigo-400" />
+    </div>
+  ),
+});
 
 type Props = {
   organizationId: string;
@@ -169,29 +180,84 @@ export default function AnalysisView({ organizationId, projectId, initialStatus 
     );
   }
 
-  return <BlueprintResults blueprint={blueprint} />;
+  return <BlueprintResults blueprint={blueprint} projectId={projectId} />;
 }
 
 // ---------------------------------------------------------------------------
 // Blueprint results
 // ---------------------------------------------------------------------------
 
-function BlueprintResults({ blueprint }: { blueprint: Blueprint }) {
+function BlueprintResults({ blueprint, projectId }: { blueprint: Blueprint; projectId: string }) {
+  const [viewMode, setViewMode] = useState<"canvas" | "list">("canvas");
   const meta = blueprint.project_metadata;
+
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
+      {/* Meta stats */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <MetaStat label="Paradigm" value={meta.detected_paradigm.replace(/_/g, " ")} />
         <MetaStat label="Files indexed" value={String(meta.total_nodes_indexed)} />
         <MetaStat label="Dependencies" value={String(meta.total_edges)} />
         <MetaStat label="Clusters" value={String(meta.total_clusters)} />
       </div>
-      <div className="flex flex-col gap-3">
-        <p className="text-sm font-semibold text-zinc-700">Architectural Clusters</p>
-        {blueprint.clusters.map((cluster) => (
-          <ClusterCard key={cluster.cluster_id} cluster={cluster} nodes={blueprint.nodes} />
-        ))}
+
+      {/* View toggle */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setViewMode("canvas")}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+            viewMode === "canvas"
+              ? "bg-indigo-600 text-white"
+              : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+          }`}
+        >
+          <Network size={13} /> Graph View
+        </button>
+        <button
+          onClick={() => setViewMode("list")}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+            viewMode === "list"
+              ? "bg-indigo-600 text-white"
+              : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+          }`}
+        >
+          <List size={13} /> List View
+        </button>
+        {viewMode === "canvas" && (
+          <span className="text-xs text-zinc-400 ml-1">
+            Drag files between clusters · Delete key removes edges · Scroll to zoom
+          </span>
+        )}
       </div>
+
+      {/* Canvas */}
+      {viewMode === "canvas" && (
+        <div style={{ height: 640 }}>
+          <CodeSightCanvas blueprint={blueprint} projectId={projectId} />
+        </div>
+      )}
+
+      {/* List */}
+      {viewMode === "list" && (
+        <div className="flex flex-col gap-3">
+          <p className="text-sm font-semibold text-zinc-700">Architectural Clusters</p>
+          {blueprint.clusters
+            .filter((c) => !c.cluster_id.startsWith("shared_dep_"))
+            .map((cluster) => (
+              <ClusterCard key={cluster.cluster_id} cluster={cluster} nodes={blueprint.nodes} />
+            ))}
+          {blueprint.clusters.some((c) => c.cluster_id.startsWith("shared_dep_")) && (
+            <>
+              <p className="text-sm font-semibold text-zinc-700 mt-2">Shared Dependencies</p>
+              {blueprint.clusters
+                .filter((c) => c.cluster_id.startsWith("shared_dep_"))
+                .map((cluster) => (
+                  <ClusterCard key={cluster.cluster_id} cluster={cluster} nodes={blueprint.nodes} />
+                ))}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

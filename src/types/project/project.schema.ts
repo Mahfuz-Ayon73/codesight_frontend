@@ -73,6 +73,7 @@ export interface BlueprintCluster {
   functional_summary: string;
   node_ids: number[];
   nodes: string[]; // canonical paths
+  referenced_by_clusters?: string[]; // shared-dependency clusters only
 }
 
 export interface BlueprintMetadata {
