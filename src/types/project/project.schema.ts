@@ -65,6 +65,9 @@ export interface BlueprintEdge {
   source_id: number;
   target_id: number;
   weight: number;
+  binding?: string;
+  called_names?: string[];
+  is_dead_import?: boolean;
 }
 
 export interface BlueprintCluster {

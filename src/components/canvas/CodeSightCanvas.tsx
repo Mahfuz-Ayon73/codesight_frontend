@@ -5,13 +5,11 @@ import {
   ReactFlow,
   Background,
   Controls,
-  MiniMap,
   useNodesState,
   useEdgesState,
   addEdge,
   type Node,
   type Edge,
-  type OnNodeDragStop,
   type OnEdgesDelete,
   type NodeMouseHandler,
   ReactFlowProvider,
@@ -23,10 +21,12 @@ import "@xyflow/react/dist/style.css";
 
 import type { Blueprint } from "@/types/project/project.schema";
 import { useD3Layout } from "./useD3Layout";
+import { computeClusterRelationships } from "./useClusterRelationships";
+import { CLUSTER_COLORS } from "./useD3Layout";
 import ClusterGroupNode from "./ClusterGroupNode";
 import FileCardNode from "./FileCardNode";
 import {
-  Layers, FileCode, GitBranch, ArrowLeft, Info,
+  Layers, FileCode, GitBranch, ArrowLeft, Info, Link2, Unlink,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -74,11 +74,12 @@ interface InnerProps {
   overviewNodes: Node[];
   overviewEdges: Edge[];
   clusterDetails: Map<string, { nodes: Node[]; edges: Edge[] }>;
+  clusterFlowDetails: Map<string, { nodes: Node[]; edges: Edge[] }>;
 }
 
 function InnerCanvas({
   blueprint, projectId,
-  overviewNodes, overviewEdges, clusterDetails,
+  overviewNodes, overviewEdges, clusterDetails, clusterFlowDetails,
 }: InnerProps) {
   const { fitView } = useReactFlow();
   const overridesRef = useRef<UserOverrides>(loadOverrides(projectId));
@@ -86,16 +87,12 @@ function InnerCanvas({
   // Two canvas modes: "overview" shows all clusters; "detail" shows one
   const [mode, setMode]             = useState<"overview" | "detail">("overview");
   const [activeCluster, setActive]  = useState<string | null>(null);
+  const [flowActive, setFlowActive] = useState<boolean>(false);
+  // Connectivity summary for the active cluster (computed on-demand)
+  const [connectivity, setConnectivity] = useState<ReturnType<typeof computeClusterRelationships> | null>(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(overviewNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(overviewEdges);
-
-  // Seed overview on layout ready
-  useEffect(() => {
-    setNodes(overviewNodes);
-    setEdges(overviewEdges);
-    setTimeout(() => fitView({ padding: 0.14, duration: 500 }), 80);
-  }, [overviewNodes, overviewEdges, setNodes, setEdges, fitView]);
 
   // Apply saved overrides to detail layouts
   const applyOverrides = useCallback(
@@ -112,31 +109,113 @@ function InnerCanvas({
     []
   );
 
+  // Sync canvas nodes/edges reactively based on mode, active cluster, and flow mode
+  useEffect(() => {
+    if (mode === "overview") {
+      setNodes(overviewNodes);
+      setEdges(overviewEdges);
+      setConnectivity(null);
+    } else if (mode === "detail" && activeCluster) {
+      const clusterIndex = blueprint.clusters
+        .filter((c) => !c.cluster_id.startsWith("shared_dep_"))
+        .findIndex((c) => c.cluster_id === activeCluster);
+      const colorIndex = ((clusterIndex ?? 0) % CLUSTER_COLORS.length + CLUSTER_COLORS.length) % CLUSTER_COLORS.length;
+      const edgeColor  = CLUSTER_COLORS[colorIndex]?.border ?? "rgba(99,102,241,0.50)";
+
+      if (flowActive) {
+        // Flow mode: use pre-computed hierarchical DAG layout
+        const flowDetail = clusterFlowDetails.get(activeCluster);
+        if (!flowDetail) return;
+
+        // Compute connectivity for the summary panel
+        const rel = computeClusterRelationships(activeCluster, blueprint, edgeColor, true);
+        setConnectivity(rel);
+
+        // Enrich nodes with flow orphan info
+        const enrichedNodes = flowDetail.nodes.map((n) => {
+          const conn = rel.connectivity.get(n.id);
+          if (!conn || n.type !== "fileCard") return n;
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              isFlowOrphan: conn.isFlowOrphan,
+              edgeCount: conn.edgeCount,
+              flowActive: true,
+            },
+          };
+        });
+
+        setNodes(enrichedNodes);
+        setEdges(flowDetail.edges);
+      } else {
+        // Structure mode: use force-directed scatter layout
+        const detail = clusterDetails.get(activeCluster);
+        if (!detail) return;
+
+        const rel = computeClusterRelationships(activeCluster, blueprint, edgeColor, false);
+        setConnectivity(rel);
+
+        const enrichedNodes = detail.nodes.map((n) => {
+          const conn = rel.connectivity.get(n.id);
+          if (!conn) return n;
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              isOrphan: conn.isOrphan,
+              isFlowOrphan: conn.isFlowOrphan,
+              edgeCount: conn.edgeCount,
+              flowActive: false,
+            },
+          };
+        });
+
+        const [pNodes, pEdges] = applyOverrides(enrichedNodes, rel.edges);
+        setNodes(pNodes);
+        setEdges(pEdges);
+      }
+    }
+  }, [
+    mode,
+    activeCluster,
+    flowActive,
+    overviewNodes,
+    overviewEdges,
+    clusterDetails,
+    clusterFlowDetails,
+    blueprint,
+    applyOverrides,
+    setNodes,
+    setEdges,
+  ]);
+
+  // Handle fitView automatically when navigation mode changes
+  useEffect(() => {
+    if (mode === "overview") {
+      setTimeout(() => fitView({ padding: 0.14, duration: 450 }), 80);
+    } else if (mode === "detail" && activeCluster) {
+      setTimeout(() => fitView({ padding: 0.12, duration: 450 }), 80);
+    }
+  }, [mode, activeCluster, flowActive, fitView]);
+
   // ------------------------------------------------------------------
   // Open a cluster (drill-down)
   // ------------------------------------------------------------------
   const openCluster = useCallback(
     (clusterId: string) => {
-      const detail = clusterDetails.get(clusterId);
-      if (!detail) return;
-      const [pNodes, pEdges] = applyOverrides(detail.nodes, detail.edges);
-      setNodes(pNodes);
-      setEdges(pEdges);
+      setFlowActive(false); // Reset flow view when switching clusters
       setActive(clusterId);
       setMode("detail");
-      setTimeout(() => fitView({ padding: 0.15, duration: 450 }), 60);
     },
-    [clusterDetails, applyOverrides, setNodes, setEdges, fitView]
+    []
   );
 
   // Return to overview
   const closeCluster = useCallback(() => {
-    setNodes(overviewNodes);
-    setEdges(overviewEdges);
     setActive(null);
     setMode("overview");
-    setTimeout(() => fitView({ padding: 0.14, duration: 450 }), 60);
-  }, [overviewNodes, overviewEdges, setNodes, setEdges, fitView]);
+  }, []);
 
   // ------------------------------------------------------------------
   // Click on cluster node in overview → open drill-down
@@ -153,8 +232,8 @@ function InnerCanvas({
   // ------------------------------------------------------------------
   // Drag-to-recluster (detail mode only)
   // ------------------------------------------------------------------
-  const onNodeDragStop: OnNodeDragStop = useCallback(
-    (_, draggedNode) => {
+  const onNodeDragStop = useCallback(
+    (_: any, draggedNode: any) => {
       if (mode !== "detail" || draggedNode.type !== "fileCard") return;
       // Find the bg node to determine if drop is inside bounds
       const bgNode = nodes.find((n) => n.id.endsWith("__bg"));
@@ -232,20 +311,6 @@ function InnerCanvas({
           style={{ backdropFilter: "blur(8px)" }}
         />
 
-        <MiniMap
-          nodeColor={(n) => {
-            if (n.type === "clusterGroup") return "rgba(99,102,241,0.35)";
-            if ((n.data as { is_god_file?: boolean }).is_god_file) return "rgba(245,158,11,0.55)";
-            return "rgba(99,102,241,0.18)";
-          }}
-          style={{
-            background:   "rgba(8,8,16,0.85)",
-            border:       "1px solid rgba(255,255,255,0.07)",
-            borderRadius: 12,
-            backdropFilter: "blur(8px)",
-          }}
-        />
-
         {/* Stats + breadcrumb */}
         <Panel position="top-left">
           <div
@@ -267,7 +332,59 @@ function InnerCanvas({
                   <span className="font-medium">Overview</span>
                 </button>
                 <span className="text-white/20">/</span>
-                <span className="text-white/70 font-medium truncate max-w-[160px]">{activeLabel}</span>
+                <span className="text-white/70 font-medium truncate max-w-[130px] mr-2">{activeLabel}</span>
+
+                {/* Flow / Structure Toggle */}
+                <div className="flex items-center bg-zinc-950/60 rounded-lg p-0.5 border border-white/5 ml-1">
+                  <button
+                    onClick={() => setFlowActive(false)}
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all duration-150 ${
+                      !flowActive
+                        ? "bg-indigo-600/85 text-white shadow-sm"
+                        : "text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    Structure
+                  </button>
+                  <button
+                    onClick={() => setFlowActive(true)}
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all duration-150 ${
+                      flowActive
+                        ? "bg-cyan-600/85 text-white shadow-sm"
+                        : "text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    Flow
+                  </button>
+                </div>
+
+                {/* Connectivity inline summary */}
+                {connectivity && (
+                  <>
+                    <span className="text-white/15">|</span>
+                    <div className="flex items-center gap-2 text-[10px]">
+                      <span className="flex items-center gap-1">
+                        <Link2 size={9} className={flowActive ? "text-cyan-400" : "text-emerald-400"} />
+                        <span className={flowActive ? "text-cyan-400 font-semibold" : "text-emerald-400 font-semibold"}>
+                          {connectivity.connectedCount}
+                        </span>
+                        <span className="text-white/40">connected</span>
+                      </span>
+                      {connectivity.orphanCount > 0 && !flowActive && (
+                        <span className="flex items-center gap-1">
+                          <Unlink size={9} className="text-amber-400" />
+                          <span className="text-amber-400 font-semibold">{connectivity.orphanCount}</span>
+                          <span className="text-white/40">isolated</span>
+                        </span>
+                      )}
+                      {flowActive && connectivity.edges.length > 0 && (
+                        <span className="text-cyan-400/60 font-mono">
+                          {connectivity.edges.length} call{connectivity.edges.length !== 1 ? "s" : ""}
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )}
               </>
             )}
 
@@ -304,9 +421,10 @@ function InnerCanvas({
             <Info size={9} />
             {mode === "overview"
               ? "Click a cluster to explore"
-              : "Delete key removes edges"}
+              : flowActive ? "Flow mode — only connected files shown" : "Delete key removes edges"}
           </div>
         </Panel>
+
       </ReactFlow>
     </div>
   );
@@ -346,6 +464,7 @@ export default function CodeSightCanvas({ blueprint, projectId }: Props) {
         overviewNodes={layout.overviewNodes}
         overviewEdges={layout.overviewEdges}
         clusterDetails={layout.clusterDetails}
+        clusterFlowDetails={layout.clusterFlowDetails}
       />
     </ReactFlowProvider>
   );

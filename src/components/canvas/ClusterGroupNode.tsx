@@ -26,8 +26,6 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
         style={{
           background:   d.colorBg,
           border:       `1.5px solid ${d.colorBorder}`,
-          backdropFilter: "blur(6px)",
-          WebkitBackdropFilter: "blur(6px)",
           pointerEvents: "none",
         }}
       >

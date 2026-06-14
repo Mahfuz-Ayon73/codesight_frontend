@@ -15,8 +15,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* Scrollable content — offset by navbar height and sidebar width */}
-      <main className="pt-14 pl-52 min-h-screen">
-        <div className="p-6">
+      <main className="pt-14 pl-52 min-h-screen bg-white">
+        <div className="p-6 pb-12">
           {children}
         </div>
       </main>

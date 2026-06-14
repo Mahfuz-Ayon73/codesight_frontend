@@ -33,10 +33,10 @@ export default async function ProjectPage({ params }: Props) {
   }[project.sourceType];
 
   return (
-    <div className="max-w-4xl mx-auto flex flex-col gap-6">
+    <div className="flex flex-col gap-6 bg-white">
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 max-w-4xl mx-auto w-full">
         <div>
           {!needsUpload && (
             <div className="flex items-center gap-1.5 text-xs text-zinc-400 mb-1">
@@ -57,7 +57,9 @@ export default async function ProjectPage({ params }: Props) {
 
       {/* Upload prompt */}
       {needsUpload && (
-        <UploadCodebase organizationId={organizationId} projectId={projectId} />
+        <div className="max-w-4xl mx-auto w-full">
+          <UploadCodebase organizationId={organizationId} projectId={projectId} />
+        </div>
       )}
 
       {/* Analysis view — shown for all states after upload */}
@@ -70,17 +72,19 @@ export default async function ProjectPage({ params }: Props) {
       )}
 
       {project.uploadErrorMessage && (
-        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">
+        <div className="max-w-4xl mx-auto w-full rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">
           {project.uploadErrorMessage}
         </div>
       )}
 
       {/* Members */}
-      <ProjectMembersPanel
-        organizationId={organizationId}
-        projectId={projectId}
-        initialMembers={members}
-      />
+      <div className="max-w-4xl mx-auto w-full">
+        <ProjectMembersPanel
+          organizationId={organizationId}
+          projectId={projectId}
+          initialMembers={members}
+        />
+      </div>
     </div>
   );
 }

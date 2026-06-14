@@ -11,12 +11,15 @@ export interface LayoutResult {
   /** Inter-cluster edges for overview */
   overviewEdges: Edge[];
   /**
-   * Per-cluster detail layout.
-   * Key = cluster_id, value = { nodes, edges } ready to render in drill-down mode.
-   * Pre-computed so switching clusters is instant with no layout delay.
-   * Execution flows will be added here in a future pass.
+   * Per-cluster detail layout (structure mode — force-directed scatter).
+   * Key = cluster_id, value = { nodes, edges }
    */
   clusterDetails: Map<string, { nodes: Node[]; edges: Edge[] }>;
+  /**
+   * Per-cluster FLOW layout (hierarchical DAG — entry → internal → sink).
+   * Key = cluster_id, value = { nodes, edges }
+   */
+  clusterFlowDetails: Map<string, { nodes: Node[]; edges: Edge[] }>;
   ready: boolean;
 }
 
@@ -51,6 +54,7 @@ export function useD3Layout(blueprint: Blueprint | null): LayoutResult {
     overviewNodes: [],
     overviewEdges: [],
     clusterDetails: new Map(),
+    clusterFlowDetails: new Map(),
     ready: false,
   });
   const computedRef = useRef(false);
@@ -246,5 +250,236 @@ function compute(blueprint: Blueprint): Omit<LayoutResult, "ready"> {
     clusterDetails.set(cluster.cluster_id, { nodes: detailNodes, edges: detailEdges });
   }
 
-  return { overviewNodes, overviewEdges, clusterDetails };
+  // ------------------------------------------------------------------
+  // Flow layout — hierarchical DAG per cluster (entry → internal → sink)
+  // ------------------------------------------------------------------
+  const clusterFlowDetails = new Map<string, { nodes: Node[]; edges: Edge[] }>();
+
+  for (const cluster of appClusters) {
+    const ci    = colorOf.get(cluster.cluster_id)!;
+    const color = CLUSTER_COLORS[ci];
+
+    const children = cluster.node_ids
+      .map((id) => bpNodeMap.get(id))
+      .filter(Boolean) as Blueprint["nodes"];
+
+    const memberSet = new Set(cluster.node_ids.map(String));
+
+    // Active (non-dead) intra-cluster edges only for flow
+    const activeEdges = blueprint.edges.filter(
+      (e) =>
+        memberSet.has(String(e.source_id)) &&
+        memberSet.has(String(e.target_id)) &&
+        e.is_dead_import !== true
+    );
+
+    // Only include nodes that participate in at least one active edge
+    const flowParticipants = new Set<string>();
+    for (const e of activeEdges) {
+      flowParticipants.add(String(e.source_id));
+      flowParticipants.add(String(e.target_id));
+    }
+
+    // Use all nodes if nobody has any active edges (fallback)
+    const useAllNodes = flowParticipants.size === 0;
+    const flowChildren = useAllNodes
+      ? children
+      : children.filter((n) => flowParticipants.has(String(n.id)));
+    const orphanChildren = useAllNodes
+      ? []
+      : children.filter((n) => !flowParticipants.has(String(n.id)));
+
+    // Assign layer by execution_role, then refine with topological ordering
+    // Layer 0 = ENTRY_POINT, Layer 1 = INTERNAL, Layer 2 = TERMINAL_SINK
+    const roleLayer: Record<string, number> = {
+      ENTRY_POINT:    0,
+      INTERNAL:       1,
+      SHARED_DEPENDENCY: 1,
+      TERMINAL_SINK:  2,
+    };
+
+    // Build adjacency for topo-sort
+    const inDegree  = new Map<string, number>();
+    const adjList   = new Map<string, string[]>();
+    for (const c of flowChildren) {
+      inDegree.set(String(c.id), 0);
+      adjList.set(String(c.id), []);
+    }
+    for (const e of activeEdges) {
+      const s = String(e.source_id);
+      const t = String(e.target_id);
+      adjList.get(s)?.push(t);
+      inDegree.set(t, (inDegree.get(t) ?? 0) + 1);
+    }
+
+    // Kahn's topo sort → assign depth layer
+    const depthOf = new Map<string, number>();
+    const queue: string[] = [];
+    for (const [id, deg] of inDegree) {
+      const bpNode = bpNodeMap.get(Number(id));
+      depthOf.set(id, roleLayer[bpNode?.execution_role ?? "INTERNAL"] ?? 1);
+      if (deg === 0) queue.push(id);
+    }
+
+    while (queue.length) {
+      const cur = queue.shift()!;
+      const curDepth = depthOf.get(cur) ?? 1;
+      for (const next of (adjList.get(cur) ?? [])) {
+        // Push child at least one layer below parent
+        const nextDepth = Math.max(depthOf.get(next) ?? 0, curDepth + 1);
+        depthOf.set(next, nextDepth);
+        inDegree.set(next, (inDegree.get(next) ?? 1) - 1);
+        if ((inDegree.get(next) ?? 0) <= 0) queue.push(next);
+      }
+    }
+
+    // Group nodes by layer
+    const layerMap = new Map<number, string[]>();
+    for (const [id, depth] of depthOf) {
+      const arr = layerMap.get(depth) ?? [];
+      arr.push(id);
+      layerMap.set(depth, arr);
+    }
+    const sortedLayers = [...layerMap.keys()].sort((a, b) => a - b);
+
+    // Layout constants
+    const FLOW_NODE_W  = 224;
+    const FLOW_NODE_H  = 80;
+    const FLOW_H_GAP   = 60;   // horizontal gap between nodes in same layer
+    const FLOW_V_GAP   = 90;   // vertical gap between layers
+    const FLOW_PAD     = 80;
+
+    // Position each node
+    const posMap = new Map<string, { x: number; y: number }>();
+    let totalW = 0;
+    for (const layer of sortedLayers) {
+      const ids = layerMap.get(layer)!;
+      const rowW = ids.length * FLOW_NODE_W + (ids.length - 1) * FLOW_H_GAP;
+      if (rowW > totalW) totalW = rowW;
+    }
+
+    let y = FLOW_PAD;
+    for (const layer of sortedLayers) {
+      const ids = layerMap.get(layer)!;
+      const rowW = ids.length * FLOW_NODE_W + (ids.length - 1) * FLOW_H_GAP;
+      const startX = (totalW - rowW) / 2 + FLOW_PAD;
+      ids.forEach((id, idx) => {
+        posMap.set(id, {
+          x: startX + idx * (FLOW_NODE_W + FLOW_H_GAP),
+          y,
+        });
+      });
+      y += FLOW_NODE_H + FLOW_V_GAP;
+    }
+
+    // Total canvas width from connected nodes row
+    const canvasW = Math.max(totalW + FLOW_PAD * 2, orphanChildren.length * (FLOW_NODE_W + FLOW_H_GAP) + FLOW_PAD * 2);
+
+    // Orphan row: place below the connected DAG with a divider gap
+    const ORPHAN_SECTION_GAP = 50;
+    const orphanY = y + (orphanChildren.length > 0 ? ORPHAN_SECTION_GAP : 0);
+    const orphanRowW = orphanChildren.length * FLOW_NODE_W + (orphanChildren.length - 1) * FLOW_H_GAP;
+    const orphanStartX = (canvasW - orphanRowW) / 2;
+
+    const canvasH = orphanChildren.length > 0
+      ? orphanY + FLOW_NODE_H + FLOW_PAD
+      : y + FLOW_PAD;
+
+    // Background stage node
+    const flowNodes: Node[] = [
+      {
+        id:       `${cluster.cluster_id}__bg`,
+        type:     "clusterGroup",
+        position: { x: 0, y: 0 },
+        style:    { width: canvasW, height: canvasH, pointerEvents: "none" },
+        selectable: false,
+        draggable:  false,
+        data: {
+          label:       cluster.suggested_title || cluster.cluster_id,
+          summary:     cluster.functional_summary,
+          fileCount:   children.length,
+          colorBg:     color.bg,
+          colorBorder: color.border,
+          clusterId:   cluster.cluster_id,
+          isBackground: true,
+        },
+      },
+    ];
+
+    // Connected nodes (full opacity, in DAG positions)
+    for (const child of flowChildren) {
+      const id  = String(child.id);
+      const pos = posMap.get(id) ?? { x: FLOW_PAD, y: FLOW_PAD };
+      flowNodes.push({
+        id,
+        type:     "fileCard",
+        position: pos,
+        style:    { width: FLOW_NODE_W },
+        data: {
+          ...child,
+          clusterId:    cluster.cluster_id,
+          clusterColor: color.border,
+          flowActive:   true,
+          isFlowOrphan: false,
+        },
+      });
+    }
+
+    // Orphan nodes (dimmed, bottom row)
+    orphanChildren.forEach((child, idx) => {
+      const id = String(child.id);
+      flowNodes.push({
+        id,
+        type:     "fileCard",
+        position: {
+          x: orphanStartX + idx * (FLOW_NODE_W + FLOW_H_GAP),
+          y: orphanY,
+        },
+        style: { width: FLOW_NODE_W },
+        data: {
+          ...child,
+          clusterId:    cluster.cluster_id,
+          clusterColor: color.border,
+          flowActive:   true,
+          isFlowOrphan: true,
+        },
+      });
+    });
+
+    // Flow edges with called_names labels
+    const flowEdges: Edge[] = activeEdges.map((e) => {
+      let label: string | undefined;
+      if (e.called_names && e.called_names.length > 0) {
+        const joined = e.called_names.join(", ");
+        label = joined.length > 32 ? joined.substring(0, 29) + "…" : joined;
+      } else if (e.binding) {
+        label = e.binding.length > 32 ? e.binding.substring(0, 29) + "…" : e.binding;
+      }
+
+      return {
+        id:       `flow-${e.source_id}-${e.target_id}`,
+        source:   String(e.source_id),
+        target:   String(e.target_id),
+        animated: true,
+        type:     "smoothstep",
+        style:    { stroke: "rgba(6,182,212,0.9)", strokeWidth: 2 },
+        markerEnd: {
+          type:   "arrowclosed" as const,
+          width:  16,
+          height: 16,
+          color:  "rgba(6,182,212,0.9)",
+        },
+        label,
+        labelStyle:           { fill: "#67e8f9", fontSize: 10, fontWeight: 700, fontFamily: "monospace" },
+        labelBgStyle:         { fill: "rgba(8,20,30,0.95)", stroke: "rgba(6,182,212,0.4)", strokeWidth: 1 },
+        labelBgPadding:       [5, 3] as [number, number],
+        labelBgBorderRadius:  4,
+        data: { weight: e.weight },
+      };
+    });
+
+    clusterFlowDetails.set(cluster.cluster_id, { nodes: flowNodes, edges: flowEdges });
+  }
+
+  return { overviewNodes, overviewEdges, clusterDetails, clusterFlowDetails };
 }

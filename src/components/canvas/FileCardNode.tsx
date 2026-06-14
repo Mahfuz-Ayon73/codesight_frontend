@@ -2,7 +2,7 @@
 
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { FileCode, Crown, ArrowRight, ArrowLeft, Share2 } from "lucide-react";
+import { FileCode, Crown, ArrowRight, ArrowLeft, Share2, Unlink } from "lucide-react";
 
 interface FileCardData {
   id:                   number;
@@ -16,6 +16,10 @@ interface FileCardData {
   clusterColor:         string;
   isSharedDep?:         boolean;
   referencedBy?:        string[];
+  isOrphan?:            boolean;   // no edges to other cluster members
+  isFlowOrphan?:        boolean;   // no edges in execution flow mode
+  edgeCount?:           number;    // total intra-cluster edge connections
+  flowActive?:          boolean;   // whether flow mode is active
   [key: string]: unknown;
 }
 
@@ -50,18 +54,42 @@ function FileCardNode({ data, selected }: NodeProps) {
   const dirLabel = parts.slice(-2).join("/");
   const role     = ROLE_CONFIG[d.execution_role] ?? ROLE_CONFIG.INTERNAL;
 
+  const flowActive = d.flowActive as boolean;
+  const isOrphan = flowActive ? d.isFlowOrphan : d.isOrphan;
+
   return (
     <div
       className="relative rounded-xl transition-all duration-150 cursor-pointer group"
       style={{
         width:      220,
-        background: "rgba(15,15,25,0.82)",
-        border:     `1px solid ${selected ? "rgba(99,102,241,0.8)" : "rgba(255,255,255,0.08)"}`,
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
+        background: flowActive
+          ? isOrphan
+            ? "rgba(10,10,15,0.4)"
+            : "rgba(10,25,35,0.85)"
+          : d.isOrphan
+            ? "rgba(30,20,10,0.85)"
+            : "rgba(15,15,25,0.82)",
+        border:     `1px solid ${
+          selected
+            ? flowActive ? "rgba(6,182,212,0.9)" : "rgba(99,102,241,0.8)"
+            : flowActive
+              ? isOrphan
+                ? "rgba(255,255,255,0.03)"
+                : "rgba(6,182,212,0.3)"
+              : d.isOrphan
+                ? "rgba(245,158,11,0.25)"
+                : "rgba(255,255,255,0.08)"
+        }`,
+        backdropFilter: flowActive ? "none" : "blur(12px)",
+        WebkitBackdropFilter: flowActive ? "none" : "blur(12px)",
         boxShadow: selected
-          ? `0 0 0 2px rgba(99,102,241,0.3), 0 4px 20px rgba(0,0,0,0.4)`
+          ? flowActive
+            ? `0 0 0 2px rgba(6,182,212,0.3), 0 4px 20px rgba(0,0,0,0.4)`
+            : `0 0 0 2px rgba(99,102,241,0.3), 0 4px 20px rgba(0,0,0,0.4)`
           : "0 2px 8px rgba(0,0,0,0.3)",
+        opacity: flowActive
+          ? isOrphan ? 0.35 : 1
+          : d.isOrphan ? 0.75 : 1,
       }}
     >
       <Handle type="target" position={Position.Top}    style={{ opacity: 0, top: -1 }} />
@@ -74,12 +102,14 @@ function FileCardNode({ data, selected }: NodeProps) {
           style={{
             background: d.is_god_file
               ? "rgba(245,158,11,0.15)"
-              : "rgba(99,102,241,0.12)",
+              : flowActive
+                ? "rgba(6,182,212,0.12)"
+                : "rgba(99,102,241,0.12)",
           }}
         >
           {d.is_god_file
             ? <Crown size={11} className="text-amber-400" />
-            : <FileCode size={11} className="text-indigo-400" />
+            : <FileCode size={11} className={flowActive ? "text-cyan-400" : "text-indigo-400"} />
           }
         </div>
 
@@ -113,6 +143,32 @@ function FileCardNode({ data, selected }: NodeProps) {
             {role.icon}{role.label}
           </span>
         )}
+        {flowActive ? (
+          isOrphan ? (
+            <span className="flex items-center gap-0.5 text-[9px] px-1.5 py-px rounded-full border font-medium bg-zinc-800/50 text-zinc-500 border-zinc-700/30">
+              <Unlink size={8} />no flow
+            </span>
+          ) : (
+            d.edgeCount !== undefined && d.edgeCount > 0 && (
+              <span className="text-[9px] text-cyan-400 font-mono">
+                {d.edgeCount} flow{d.edgeCount !== 1 ? "s" : ""}
+              </span>
+            )
+          )
+        ) : (
+          <>
+            {d.isOrphan && (
+              <span className="flex items-center gap-0.5 text-[9px] px-1.5 py-px rounded-full border font-medium bg-amber-900/30 text-amber-400 border-amber-600/30">
+                <Unlink size={8} />isolated
+              </span>
+            )}
+            {!d.isOrphan && d.edgeCount !== undefined && d.edgeCount > 0 && (
+              <span className="text-[9px] text-emerald-400/70 font-mono">
+                {d.edgeCount} dep{d.edgeCount !== 1 ? "s" : ""}
+              </span>
+            )}
+          </>
+        )}
         {d.isSharedDep && d.referencedBy && d.referencedBy.length > 0 && (
           <span className="text-[9px] text-amber-400/80 truncate">
             ×{d.referencedBy.length} clusters
@@ -123,7 +179,7 @@ function FileCardNode({ data, selected }: NodeProps) {
       {/* Left accent bar */}
       <div
         className="absolute left-0 top-3 bottom-3 w-0.5 rounded-full"
-        style={{ background: d.clusterColor }}
+        style={{ background: flowActive ? (isOrphan ? "rgba(255,255,255,0.05)" : "#06b6d4") : d.clusterColor }}
       />
     </div>
   );
