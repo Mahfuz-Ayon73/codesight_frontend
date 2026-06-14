@@ -113,17 +113,17 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
 
       } else {
         if (!githubUrl.trim()) { setErrorMsg("Please enter a GitHub URL."); setStatus("error"); return; }
-        const res = await fetch(`${base}/upload/github`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            githubUrl: githubUrl.trim(),
-            ...(githubToken.trim() ? { accessToken: githubToken.trim() } : {}),
-          }),
-        });
+        const res = await fetch(
+          `/api/upload/github?organizationId=${organizationId}&projectId=${projectId}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              githubUrl: githubUrl.trim(),
+              ...(githubToken.trim() ? { accessToken: githubToken.trim() } : {}),
+            }),
+          }
+        );
         if (!res.ok) {
           const body = await res.json().catch(() => null);
           throw new Error(body?.message ?? "GitHub upload failed");
