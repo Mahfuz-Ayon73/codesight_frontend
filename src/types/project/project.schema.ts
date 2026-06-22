@@ -50,20 +50,22 @@ export interface UpdateProjectMemberRoleInput {
   role: ProjectMemberRole;
 }
 
-// Analysis blueprint types
+// Analysis blueprint types — schema v2 (flat relational)
 export interface BlueprintNode {
-  id: number;
+  id: string;           // canonical path, e.g. "src/services/stripe.ts"
+  cluster_id: string;   // foreign key → BlueprintCluster.id
   canonical_path: string;
   centrality_score: number;
   is_god_file: boolean;
-  execution_role: "ENTRY_POINT" | "TERMINAL_SINK" | "INTERNAL";
+  execution_role: "ENTRY_POINT" | "TERMINAL_SINK" | "INTERNAL" | "SHARED_DEPENDENCY";
   external_dependencies: string[];
   text_summary: string;
 }
 
 export interface BlueprintEdge {
-  source_id: number;
-  target_id: number;
+  source: string;       // canonical path
+  target: string;       // canonical path
+  type: string;         // "import"
   weight: number;
   binding?: string;
   called_names?: string[];
@@ -71,12 +73,11 @@ export interface BlueprintEdge {
 }
 
 export interface BlueprintCluster {
-  cluster_id: string;
-  suggested_title: string;
-  functional_summary: string;
-  node_ids: number[];
-  nodes: string[]; // canonical paths
-  referenced_by_clusters?: string[]; // shared-dependency clusters only
+  id: string;
+  name: string | null;
+  parent_cluster_id: string | null;
+  suggested_title: string | null;
+  functional_summary: string | null;
 }
 
 export interface BlueprintMetadata {
@@ -84,14 +85,14 @@ export interface BlueprintMetadata {
   total_nodes_indexed: number;
   total_edges: number;
   total_clusters: number;
+  max_cluster_size?: number;
 }
 
 export interface Blueprint {
   schema_version: string;
   project_id: string;
   project_metadata: BlueprintMetadata;
+  clusters: BlueprintCluster[];
   nodes: BlueprintNode[];
   edges: BlueprintEdge[];
-  clusters: BlueprintCluster[];
-  execution_sequences: unknown[];
 }

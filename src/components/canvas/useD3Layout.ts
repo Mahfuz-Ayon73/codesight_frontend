@@ -1,485 +1,347 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import type { Node, Edge } from "@xyflow/react";
 import * as d3 from "d3";
-import type { Blueprint } from "@/types/project/project.schema";
-
-export interface LayoutResult {
-  /** Cluster-level (overview) nodes — one per cluster */
-  overviewNodes: Node[];
-  /** Inter-cluster edges for overview */
-  overviewEdges: Edge[];
-  /**
-   * Per-cluster detail layout (structure mode — force-directed scatter).
-   * Key = cluster_id, value = { nodes, edges }
-   */
-  clusterDetails: Map<string, { nodes: Node[]; edges: Edge[] }>;
-  /**
-   * Per-cluster FLOW layout (hierarchical DAG — entry → internal → sink).
-   * Key = cluster_id, value = { nodes, edges }
-   */
-  clusterFlowDetails: Map<string, { nodes: Node[]; edges: Edge[] }>;
-  ready: boolean;
-}
+import type { Blueprint, BlueprintCluster, BlueprintNode } from "@/types/project/project.schema";
 
 export const CLUSTER_COLORS = [
-  { bg: "rgba(99,102,241,0.10)",  border: "rgba(99,102,241,0.50)"  }, // indigo
-  { bg: "rgba(16,185,129,0.10)",  border: "rgba(16,185,129,0.50)"  }, // emerald
-  { bg: "rgba(245,158,11,0.10)",  border: "rgba(245,158,11,0.50)"  }, // amber
-  { bg: "rgba(236,72,153,0.10)",  border: "rgba(236,72,153,0.50)"  }, // pink
-  { bg: "rgba(59,130,246,0.10)",  border: "rgba(59,130,246,0.50)"  }, // blue
-  { bg: "rgba(168,85,247,0.10)",  border: "rgba(168,85,247,0.50)"  }, // purple
-  { bg: "rgba(20,184,166,0.10)",  border: "rgba(20,184,166,0.50)"  }, // teal
-  { bg: "rgba(239,68,68,0.10)",   border: "rgba(239,68,68,0.50)"   }, // red
+  { bg: "rgba(99,102,241,0.10)",  border: "rgba(99,102,241,0.50)"  },
+  { bg: "rgba(16,185,129,0.10)",  border: "rgba(16,185,129,0.50)"  },
+  { bg: "rgba(245,158,11,0.10)",  border: "rgba(245,158,11,0.50)"  },
+  { bg: "rgba(236,72,153,0.10)",  border: "rgba(236,72,153,0.50)"  },
+  { bg: "rgba(59,130,246,0.10)",  border: "rgba(59,130,246,0.50)"  },
+  { bg: "rgba(168,85,247,0.10)",  border: "rgba(168,85,247,0.50)"  },
+  { bg: "rgba(20,184,166,0.10)",  border: "rgba(20,184,166,0.50)"  },
+  { bg: "rgba(239,68,68,0.10)",   border: "rgba(239,68,68,0.50)"   },
 ];
 
-// Overview cluster node dimensions — fixed pill cards
 const OV_NODE_W = 260;
 const OV_NODE_H = 100;
 const OV_GAP    = 120;
-
-// Detail layout constants
-const FILE_NODE_W   = 224;
-const FILE_NODE_H   = 76;
-const DETAIL_PAD    = 60;
+const FILE_NODE_W    = 224;
+const FILE_NODE_H    = 76;
+const DETAIL_PAD     = 60;
 const DETAIL_SPACING = 20;
+const FLOW_NODE_W = 224;
+const FLOW_NODE_H = 80;
+const FLOW_H_GAP  = 60;
+const FLOW_V_GAP  = 90;
+const FLOW_PAD    = 80;
 
-function clamp(v: number, lo: number, hi: number) {
+export function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
 }
 
-export function useD3Layout(blueprint: Blueprint | null): LayoutResult {
-  const [result, setResult] = useState<LayoutResult>({
-    overviewNodes: [],
-    overviewEdges: [],
-    clusterDetails: new Map(),
-    clusterFlowDetails: new Map(),
-    ready: false,
-  });
-  const computedRef = useRef(false);
+// ---------------------------------------------------------------------------
+// Helpers — build cluster-to-nodes and child lookups from blueprint
+// ---------------------------------------------------------------------------
 
-  useEffect(() => {
-    if (!blueprint || computedRef.current) return;
-    computedRef.current = true;
+export function buildClusterIndex(blueprint: Blueprint) {
+  // cluster.id → direct child clusters
+  const childrenOf = new Map<string | null, BlueprintCluster[]>();
+  for (const c of blueprint.clusters) {
+    const key = c.parent_cluster_id ?? null;
+    const arr = childrenOf.get(key) ?? [];
+    arr.push(c);
+    childrenOf.set(key, arr);
+  }
 
-    Promise.resolve().then(() => {
-      setResult({ ...compute(blueprint), ready: true });
-    });
-  }, [blueprint]);
+  // cluster.id → member leaf nodes (via node.cluster_id)
+  const nodesOf = new Map<string, BlueprintNode[]>();
+  for (const n of blueprint.nodes) {
+    if (!n.cluster_id) continue;
+    const arr = nodesOf.get(n.cluster_id) ?? [];
+    arr.push(n);
+    nodesOf.set(n.cluster_id, arr);
+  }
 
-  return result;
+  // cluster.id → total descendant file count (recursive)
+  const descendantCount = new Map<string, number>();
+  function countDescendants(id: string): number {
+    if (descendantCount.has(id)) return descendantCount.get(id)!;
+    const directFiles = nodesOf.get(id)?.length ?? 0;
+    const childCount  = (childrenOf.get(id) ?? []).reduce((s, c) => s + countDescendants(c.id), 0);
+    const total = directFiles + childCount;
+    descendantCount.set(id, total);
+    return total;
+  }
+  for (const c of blueprint.clusters) countDescendants(c.id);
+
+  // cluster.id → lookup
+  const clusterById = new Map(blueprint.clusters.map((c) => [c.id, c]));
+
+  return { childrenOf, nodesOf, descendantCount, clusterById };
 }
 
-function compute(blueprint: Blueprint): Omit<LayoutResult, "ready"> {
-  const bpNodeMap = new Map(blueprint.nodes.map((n) => [n.id, n]));
-  const appClusters = blueprint.clusters.filter(
-    (c) => !c.cluster_id.startsWith("shared_dep_")
-  );
+export type ClusterIndex = ReturnType<typeof buildClusterIndex>;
 
-  // Map cluster_id → color index
-  const colorOf = new Map(appClusters.map((c, i) => [c.cluster_id, i % CLUSTER_COLORS.length]));
+// ---------------------------------------------------------------------------
+// Layout for a set of cluster pills (overview / sub-level)
+// ---------------------------------------------------------------------------
 
-  // ------------------------------------------------------------------
-  // Overview layout — D3-Force on cluster pills
-  // ------------------------------------------------------------------
-  interface SimNode extends d3.SimulationNodeDatum {
-    id: string;
-    w:  number;
-    h:  number;
-  }
-  const simNodes: SimNode[] = appClusters.map((c, i) => ({
-    id: c.cluster_id,
-    x:  (i % 4) * (OV_NODE_W + OV_GAP),
-    y:  Math.floor(i / 4) * (OV_NODE_H + OV_GAP),
-    w:  OV_NODE_W,
-    h:  OV_NODE_H,
+export function layoutClusterPills(
+  clusters: BlueprintCluster[],
+  index: ClusterIndex,
+  colorOffset: number = 0,
+): { nodes: Node[]; edges: Edge[] } {
+  if (clusters.length === 0) return { nodes: [], edges: [] };
+
+  interface SimNode extends d3.SimulationNodeDatum { id: string }
+  const simNodes: SimNode[] = clusters.map((c, i) => ({
+    id: c.id,
+    x:  (i % 5) * (OV_NODE_W + OV_GAP),
+    y:  Math.floor(i / 5) * (OV_NODE_H + OV_GAP),
   }));
 
-  const ovSim = d3
-    .forceSimulation<SimNode>(simNodes)
+  d3.forceSimulation<SimNode>(simNodes)
     .force("charge", d3.forceManyBody().strength(-320))
     .force("center", d3.forceCenter(0, 0))
-    .force("collision", d3.forceCollide<SimNode>().radius(() => Math.max(OV_NODE_W, OV_NODE_H) / 2 + OV_GAP / 2))
-    .stop();
-  for (let i = 0; i < 300; i++) ovSim.tick();
+    .force("collision", d3.forceCollide(Math.max(OV_NODE_W, OV_NODE_H) / 2 + OV_GAP / 2))
+    .stop()
+    .tick(300);
 
   const posOf = new Map(simNodes.map((s) => [s.id, { x: s.x!, y: s.y! }]));
 
-  const overviewNodes: Node[] = appClusters.map((cluster) => {
-    const ci    = colorOf.get(cluster.cluster_id)!;
+  const nodes: Node[] = clusters.map((cluster, i) => {
+    const ci    = ((i + colorOffset) % CLUSTER_COLORS.length + CLUSTER_COLORS.length) % CLUSTER_COLORS.length;
     const color = CLUSTER_COLORS[ci];
-    const pos   = posOf.get(cluster.cluster_id)!;
+    const pos   = posOf.get(cluster.id)!;
+    const fileCount = index.descendantCount.get(cluster.id) ?? 0;
+    const childCount = (index.childrenOf.get(cluster.id) ?? []).length;
+    const hasChildren = childCount > 0;
+
     return {
-      id:       cluster.cluster_id,
+      id:       cluster.id,
       type:     "clusterGroup",
       position: { x: pos.x - OV_NODE_W / 2, y: pos.y - OV_NODE_H / 2 },
       style:    { width: OV_NODE_W, height: OV_NODE_H },
       data: {
-        label:       cluster.suggested_title || cluster.cluster_id,
+        label:       cluster.suggested_title ?? cluster.name ?? cluster.id,
         summary:     cluster.functional_summary,
-        fileCount:   cluster.node_ids.length,
+        fileCount,
+        childCount,
+        hasChildren,
         colorBg:     color.bg,
         colorBorder: color.border,
-        // used by canvas to open drill-down
-        clusterId:   cluster.cluster_id,
+        clusterId:   cluster.id,
       },
     };
   });
 
-  // Inter-cluster macro edges (overview only)
-  const clusterIdOf = new Map<number, string>();
-  for (const c of appClusters) {
-    for (const nid of c.node_ids) clusterIdOf.set(nid, c.cluster_id);
+  // Inter-cluster edges at this level (cross-edges between siblings)
+  // Use descendant node sets to find cross-cluster edges
+  const clusterOfNode = new Map<string, string>();
+  function collectNodes(cid: string) {
+    for (const n of (index.nodesOf.get(cid) ?? [])) clusterOfNode.set(n.id, cid);
+    for (const child of (index.childrenOf.get(cid) ?? [])) collectNodes(child.id);
   }
-  const interPairs = new Map<string, number>();
-  for (const e of blueprint.edges) {
-    const sc = clusterIdOf.get(e.source_id);
-    const tc = clusterIdOf.get(e.target_id);
-    if (sc && tc && sc !== tc) {
-      const key = `${sc}||${tc}`;
-      interPairs.set(key, (interPairs.get(key) ?? 0) + e.weight);
-    }
-  }
-  const overviewEdges: Edge[] = [];
-  for (const [key, weight] of interPairs) {
-    const [sc, tc] = key.split("||");
-    overviewEdges.push({
-      id:       `macro-${sc}-${tc}`,
-      source:   sc,
-      target:   tc,
-      animated: false,
-      style: {
-        stroke:      "rgba(99,102,241,0.45)",
-        strokeWidth: clamp(weight * 0.15, 1.5, 6),
+  const clusterSet = new Set(clusters.map((c) => c.id));
+  for (const c of clusters) collectNodes(c.id);
+
+  // We don't have blueprint.edges here — edges are passed separately.
+  // Return nodes only; caller adds edges.
+  return { nodes, edges: [] };
+}
+
+// ---------------------------------------------------------------------------
+// Layout for leaf-cluster files (structure mode)
+// ---------------------------------------------------------------------------
+
+export function layoutFileDetail(
+  cluster: BlueprintCluster,
+  members: BlueprintNode[],
+  edges: Blueprint["edges"],
+  colorIndex: number,
+): { nodes: Node[]; edges: Edge[] } {
+  const color = CLUSTER_COLORS[colorIndex % CLUSTER_COLORS.length];
+
+  const cols = Math.max(1, Math.ceil(Math.sqrt(members.length)));
+  interface ChildSim extends d3.SimulationNodeDatum { bpId: string }
+  const childSims: ChildSim[] = members.map((n, i) => ({
+    bpId: n.id,
+    x: (i % cols) * (FILE_NODE_W + DETAIL_SPACING) + DETAIL_PAD,
+    y: Math.floor(i / cols) * (FILE_NODE_H + DETAIL_SPACING) + DETAIL_PAD,
+  }));
+
+  d3.forceSimulation<ChildSim>(childSims)
+    .force("collision", d3.forceCollide(Math.max(FILE_NODE_W, FILE_NODE_H) / 2 + 10))
+    .stop()
+    .tick(100);
+
+  const xs = childSims.map((c) => c.x!);
+  const ys = childSims.map((c) => c.y!);
+  const canvasW = (xs.length ? Math.max(...xs) : 0) + FILE_NODE_W + DETAIL_PAD * 2;
+  const canvasH = (ys.length ? Math.max(...ys) : 0) + FILE_NODE_H + DETAIL_PAD * 2;
+
+  const detailNodes: Node[] = [
+    {
+      id: `${cluster.id}__bg`, type: "clusterGroup",
+      position: { x: 0, y: 0 },
+      style: { width: canvasW, height: canvasH, pointerEvents: "none" },
+      selectable: false, draggable: false,
+      data: {
+        label: cluster.suggested_title ?? cluster.name ?? cluster.id,
+        summary: cluster.functional_summary,
+        fileCount: members.length, colorBg: color.bg, colorBorder: color.border,
+        clusterId: cluster.id, isBackground: true,
       },
-      data: { weight, isMacro: true },
+    },
+  ];
+
+  const memberMap = new Map(members.map((n) => [n.id, n]));
+  for (const cs of childSims) {
+    const n = memberMap.get(cs.bpId)!;
+    detailNodes.push({
+      id: n.id, type: "fileCard",
+      position: {
+        x: clamp(cs.x! - FILE_NODE_W / 2, DETAIL_PAD, canvasW - FILE_NODE_W - DETAIL_PAD),
+        y: clamp(cs.y! - FILE_NODE_H / 2, DETAIL_PAD, canvasH - FILE_NODE_H - DETAIL_PAD),
+      },
+      style: { width: FILE_NODE_W },
+      data: { ...n, clusterId: cluster.id, clusterColor: color.border },
     });
   }
 
-  // ------------------------------------------------------------------
-  // Detail layout — pre-compute per cluster
-  // ------------------------------------------------------------------
-  const clusterDetails = new Map<string, { nodes: Node[]; edges: Edge[] }>();
-
-  for (const cluster of appClusters) {
-    const ci    = colorOf.get(cluster.cluster_id)!;
-    const color = CLUSTER_COLORS[ci];
-
-    const children = cluster.node_ids
-      .map((id) => bpNodeMap.get(id))
-      .filter(Boolean) as Blueprint["nodes"];
-
-    // Grid seed positions → refine with D3 collision
-    const cols = Math.max(1, Math.ceil(Math.sqrt(children.length)));
-    interface ChildSim extends d3.SimulationNodeDatum { bpId: number }
-    const childSims: ChildSim[] = children.map((n, i) => ({
-      bpId: n.id,
-      x:    (i % cols) * (FILE_NODE_W + DETAIL_SPACING) + DETAIL_PAD,
-      y:    Math.floor(i / cols) * (FILE_NODE_H + DETAIL_SPACING) + DETAIL_PAD,
+  const memberSet = new Set(members.map((n) => n.id));
+  const detailEdges: Edge[] = edges
+    .filter((e) => memberSet.has(e.source) && memberSet.has(e.target))
+    .map((e) => ({
+      id: `e-${e.source}-${e.target}`, source: e.source, target: e.target,
+      animated: false,
+      style: { stroke: color.border, strokeWidth: clamp(e.weight * 0.6, 0.8, 3) },
+      data: { weight: e.weight },
     }));
 
-    const childSim = d3
-      .forceSimulation<ChildSim>(childSims)
-      .force("collision", d3.forceCollide(Math.max(FILE_NODE_W, FILE_NODE_H) / 2 + 10))
-      .stop();
-    for (let i = 0; i < 100; i++) childSim.tick();
+  return { nodes: detailNodes, edges: detailEdges };
+}
 
-    // Canvas size for this detail view
-    const xs = childSims.map((c) => c.x!);
-    const ys = childSims.map((c) => c.y!);
-    const canvasW = Math.max(...xs) + FILE_NODE_W + DETAIL_PAD * 2;
-    const canvasH = Math.max(...ys) + FILE_NODE_H + DETAIL_PAD * 2;
+// ---------------------------------------------------------------------------
+// Layout for leaf-cluster files (flow mode)
+// ---------------------------------------------------------------------------
 
-    // Background "stage" node so the cluster has a visible bounds card
-    const detailNodes: Node[] = [
-      {
-        id:       `${cluster.cluster_id}__bg`,
-        type:     "clusterGroup",
-        position: { x: 0, y: 0 },
-        style:    { width: canvasW, height: canvasH, pointerEvents: "none" },
-        selectable: false,
-        draggable:  false,
-        data: {
-          label:       cluster.suggested_title || cluster.cluster_id,
-          summary:     cluster.functional_summary,
-          fileCount:   children.length,
-          colorBg:     color.bg,
-          colorBorder: color.border,
-          clusterId:   cluster.cluster_id,
-          isBackground: true,
-        },
-      },
-    ];
+export function layoutFileFlow(
+  cluster: BlueprintCluster,
+  members: BlueprintNode[],
+  edges: Blueprint["edges"],
+  colorIndex: number,
+): { nodes: Node[]; edges: Edge[] } {
+  const color = CLUSTER_COLORS[colorIndex % CLUSTER_COLORS.length];
+  const memberSet = new Set(members.map((n) => n.id));
+  const bpNodeMap = new Map(members.map((n) => [n.id, n]));
 
-    for (const cs of childSims) {
-      const bpNode = bpNodeMap.get(cs.bpId)!;
-      detailNodes.push({
-        id:       String(bpNode.id),
-        type:     "fileCard",
-        position: {
-          x: clamp(cs.x! - FILE_NODE_W / 2, DETAIL_PAD, canvasW - FILE_NODE_W - DETAIL_PAD),
-          y: clamp(cs.y! - FILE_NODE_H / 2, DETAIL_PAD, canvasH - FILE_NODE_H - DETAIL_PAD),
-        },
-        style: { width: FILE_NODE_W },
-        data: {
-          ...bpNode,
-          clusterId:    cluster.cluster_id,
-          clusterColor: color.border,
-        },
-      });
+  const activeEdges = edges.filter(
+    (e) => memberSet.has(e.source) && memberSet.has(e.target) && e.is_dead_import !== true
+  );
+  const participants = new Set<string>();
+  for (const e of activeEdges) { participants.add(e.source); participants.add(e.target); }
+
+  const useAll = participants.size === 0;
+  const flowChildren  = useAll ? members : members.filter((n) => participants.has(n.id));
+  const orphans       = useAll ? [] : members.filter((n) => !participants.has(n.id));
+
+  const roleLayer: Record<string, number> = {
+    ENTRY_POINT: 0, INTERNAL: 1, SHARED_DEPENDENCY: 1, TERMINAL_SINK: 2,
+  };
+  const inDegree = new Map<string, number>();
+  const adjList  = new Map<string, string[]>();
+  for (const c of flowChildren) { inDegree.set(c.id, 0); adjList.set(c.id, []); }
+  for (const e of activeEdges) {
+    adjList.get(e.source)?.push(e.target);
+    inDegree.set(e.target, (inDegree.get(e.target) ?? 0) + 1);
+  }
+  const depthOf = new Map<string, number>();
+  const queue: string[] = [];
+  for (const [id, deg] of inDegree) {
+    depthOf.set(id, roleLayer[bpNodeMap.get(id)?.execution_role ?? "INTERNAL"] ?? 1);
+    if (deg === 0) queue.push(id);
+  }
+  while (queue.length) {
+    const cur = queue.shift()!;
+    for (const next of (adjList.get(cur) ?? [])) {
+      depthOf.set(next, Math.max(depthOf.get(next) ?? 0, (depthOf.get(cur) ?? 1) + 1));
+      inDegree.set(next, (inDegree.get(next) ?? 1) - 1);
+      if ((inDegree.get(next) ?? 0) <= 0) queue.push(next);
     }
-
-    // Intra-cluster edges only
-    // Future: execution flow edges will be injected here from blueprint.execution_sequences
-    const memberSet = new Set(cluster.node_ids.map(String));
-    const detailEdges: Edge[] = blueprint.edges
-      .filter((e) => memberSet.has(String(e.source_id)) && memberSet.has(String(e.target_id)))
-      .map((e) => ({
-        id:       `e-${e.source_id}-${e.target_id}`,
-        source:   String(e.source_id),
-        target:   String(e.target_id),
-        animated: false,
-        style: {
-          stroke:      color.border,
-          strokeWidth: clamp(e.weight * 0.6, 0.8, 3),
-        },
-        data: { weight: e.weight },
-      }));
-
-    clusterDetails.set(cluster.cluster_id, { nodes: detailNodes, edges: detailEdges });
   }
 
-  // ------------------------------------------------------------------
-  // Flow layout — hierarchical DAG per cluster (entry → internal → sink)
-  // ------------------------------------------------------------------
-  const clusterFlowDetails = new Map<string, { nodes: Node[]; edges: Edge[] }>();
+  const layerMap = new Map<number, string[]>();
+  for (const [id, depth] of depthOf) {
+    const arr = layerMap.get(depth) ?? []; arr.push(id); layerMap.set(depth, arr);
+  }
+  const sortedLayers = [...layerMap.keys()].sort((a, b) => a - b);
+  let totalW = 0;
+  for (const layer of sortedLayers) {
+    const ids = layerMap.get(layer)!;
+    totalW = Math.max(totalW, ids.length * FLOW_NODE_W + (ids.length - 1) * FLOW_H_GAP);
+  }
+  const posMap = new Map<string, { x: number; y: number }>();
+  let y = FLOW_PAD;
+  for (const layer of sortedLayers) {
+    const ids = layerMap.get(layer)!;
+    const rowW = ids.length * FLOW_NODE_W + (ids.length - 1) * FLOW_H_GAP;
+    const startX = (totalW - rowW) / 2 + FLOW_PAD;
+    ids.forEach((id, idx) => posMap.set(id, { x: startX + idx * (FLOW_NODE_W + FLOW_H_GAP), y }));
+    y += FLOW_NODE_H + FLOW_V_GAP;
+  }
 
-  for (const cluster of appClusters) {
-    const ci    = colorOf.get(cluster.cluster_id)!;
-    const color = CLUSTER_COLORS[ci];
+  const canvasW = Math.max(totalW + FLOW_PAD * 2, orphans.length * (FLOW_NODE_W + FLOW_H_GAP) + FLOW_PAD * 2);
+  const orphanY = y + (orphans.length > 0 ? 50 : 0);
+  const orphanStartX = (canvasW - (orphans.length * FLOW_NODE_W + (orphans.length - 1) * FLOW_H_GAP)) / 2;
+  const canvasH = orphans.length > 0 ? orphanY + FLOW_NODE_H + FLOW_PAD : y + FLOW_PAD;
 
-    const children = cluster.node_ids
-      .map((id) => bpNodeMap.get(id))
-      .filter(Boolean) as Blueprint["nodes"];
+  const flowNodes: Node[] = [
+    {
+      id: `${cluster.id}__bg`, type: "clusterGroup",
+      position: { x: 0, y: 0 },
+      style: { width: canvasW, height: canvasH, pointerEvents: "none" },
+      selectable: false, draggable: false,
+      data: {
+        label: cluster.suggested_title ?? cluster.name ?? cluster.id,
+        summary: cluster.functional_summary,
+        fileCount: members.length, colorBg: color.bg, colorBorder: color.border,
+        clusterId: cluster.id, isBackground: true,
+      },
+    },
+  ];
 
-    const memberSet = new Set(cluster.node_ids.map(String));
+  for (const child of flowChildren) {
+    flowNodes.push({
+      id: child.id, type: "fileCard",
+      position: posMap.get(child.id) ?? { x: FLOW_PAD, y: FLOW_PAD },
+      style: { width: FLOW_NODE_W },
+      data: { ...child, clusterId: cluster.id, clusterColor: color.border, flowActive: true, isFlowOrphan: false },
+    });
+  }
+  orphans.forEach((child, idx) => {
+    flowNodes.push({
+      id: child.id, type: "fileCard",
+      position: { x: orphanStartX + idx * (FLOW_NODE_W + FLOW_H_GAP), y: orphanY },
+      style: { width: FLOW_NODE_W },
+      data: { ...child, clusterId: cluster.id, clusterColor: color.border, flowActive: true, isFlowOrphan: true },
+    });
+  });
 
-    // Active (non-dead) intra-cluster edges only for flow
-    const activeEdges = blueprint.edges.filter(
-      (e) =>
-        memberSet.has(String(e.source_id)) &&
-        memberSet.has(String(e.target_id)) &&
-        e.is_dead_import !== true
-    );
-
-    // Only include nodes that participate in at least one active edge
-    const flowParticipants = new Set<string>();
-    for (const e of activeEdges) {
-      flowParticipants.add(String(e.source_id));
-      flowParticipants.add(String(e.target_id));
+  const flowEdges: Edge[] = activeEdges.map((e) => {
+    let label: string | undefined;
+    if (e.called_names?.length) {
+      const j = e.called_names.join(", ");
+      label = j.length > 32 ? j.substring(0, 29) + "…" : j;
+    } else if (e.binding) {
+      label = e.binding.length > 32 ? e.binding.substring(0, 29) + "…" : e.binding;
     }
-
-    // Use all nodes if nobody has any active edges (fallback)
-    const useAllNodes = flowParticipants.size === 0;
-    const flowChildren = useAllNodes
-      ? children
-      : children.filter((n) => flowParticipants.has(String(n.id)));
-    const orphanChildren = useAllNodes
-      ? []
-      : children.filter((n) => !flowParticipants.has(String(n.id)));
-
-    // Assign layer by execution_role, then refine with topological ordering
-    // Layer 0 = ENTRY_POINT, Layer 1 = INTERNAL, Layer 2 = TERMINAL_SINK
-    const roleLayer: Record<string, number> = {
-      ENTRY_POINT:    0,
-      INTERNAL:       1,
-      SHARED_DEPENDENCY: 1,
-      TERMINAL_SINK:  2,
+    return {
+      id: `flow-${e.source}-${e.target}`, source: e.source, target: e.target,
+      animated: true, type: "smoothstep",
+      style: { stroke: "rgba(6,182,212,0.9)", strokeWidth: 2 },
+      markerEnd: { type: "arrowclosed" as const, width: 16, height: 16, color: "rgba(6,182,212,0.9)" },
+      label,
+      labelStyle: { fill: "#67e8f9", fontSize: 10, fontWeight: 700, fontFamily: "monospace" },
+      labelBgStyle: { fill: "rgba(8,20,30,0.95)", stroke: "rgba(6,182,212,0.4)", strokeWidth: 1 },
+      labelBgPadding: [5, 3] as [number, number],
+      labelBgBorderRadius: 4,
+      data: { weight: e.weight },
     };
+  });
 
-    // Build adjacency for topo-sort
-    const inDegree  = new Map<string, number>();
-    const adjList   = new Map<string, string[]>();
-    for (const c of flowChildren) {
-      inDegree.set(String(c.id), 0);
-      adjList.set(String(c.id), []);
-    }
-    for (const e of activeEdges) {
-      const s = String(e.source_id);
-      const t = String(e.target_id);
-      adjList.get(s)?.push(t);
-      inDegree.set(t, (inDegree.get(t) ?? 0) + 1);
-    }
-
-    // Kahn's topo sort → assign depth layer
-    const depthOf = new Map<string, number>();
-    const queue: string[] = [];
-    for (const [id, deg] of inDegree) {
-      const bpNode = bpNodeMap.get(Number(id));
-      depthOf.set(id, roleLayer[bpNode?.execution_role ?? "INTERNAL"] ?? 1);
-      if (deg === 0) queue.push(id);
-    }
-
-    while (queue.length) {
-      const cur = queue.shift()!;
-      const curDepth = depthOf.get(cur) ?? 1;
-      for (const next of (adjList.get(cur) ?? [])) {
-        // Push child at least one layer below parent
-        const nextDepth = Math.max(depthOf.get(next) ?? 0, curDepth + 1);
-        depthOf.set(next, nextDepth);
-        inDegree.set(next, (inDegree.get(next) ?? 1) - 1);
-        if ((inDegree.get(next) ?? 0) <= 0) queue.push(next);
-      }
-    }
-
-    // Group nodes by layer
-    const layerMap = new Map<number, string[]>();
-    for (const [id, depth] of depthOf) {
-      const arr = layerMap.get(depth) ?? [];
-      arr.push(id);
-      layerMap.set(depth, arr);
-    }
-    const sortedLayers = [...layerMap.keys()].sort((a, b) => a - b);
-
-    // Layout constants
-    const FLOW_NODE_W  = 224;
-    const FLOW_NODE_H  = 80;
-    const FLOW_H_GAP   = 60;   // horizontal gap between nodes in same layer
-    const FLOW_V_GAP   = 90;   // vertical gap between layers
-    const FLOW_PAD     = 80;
-
-    // Position each node
-    const posMap = new Map<string, { x: number; y: number }>();
-    let totalW = 0;
-    for (const layer of sortedLayers) {
-      const ids = layerMap.get(layer)!;
-      const rowW = ids.length * FLOW_NODE_W + (ids.length - 1) * FLOW_H_GAP;
-      if (rowW > totalW) totalW = rowW;
-    }
-
-    let y = FLOW_PAD;
-    for (const layer of sortedLayers) {
-      const ids = layerMap.get(layer)!;
-      const rowW = ids.length * FLOW_NODE_W + (ids.length - 1) * FLOW_H_GAP;
-      const startX = (totalW - rowW) / 2 + FLOW_PAD;
-      ids.forEach((id, idx) => {
-        posMap.set(id, {
-          x: startX + idx * (FLOW_NODE_W + FLOW_H_GAP),
-          y,
-        });
-      });
-      y += FLOW_NODE_H + FLOW_V_GAP;
-    }
-
-    // Total canvas width from connected nodes row
-    const canvasW = Math.max(totalW + FLOW_PAD * 2, orphanChildren.length * (FLOW_NODE_W + FLOW_H_GAP) + FLOW_PAD * 2);
-
-    // Orphan row: place below the connected DAG with a divider gap
-    const ORPHAN_SECTION_GAP = 50;
-    const orphanY = y + (orphanChildren.length > 0 ? ORPHAN_SECTION_GAP : 0);
-    const orphanRowW = orphanChildren.length * FLOW_NODE_W + (orphanChildren.length - 1) * FLOW_H_GAP;
-    const orphanStartX = (canvasW - orphanRowW) / 2;
-
-    const canvasH = orphanChildren.length > 0
-      ? orphanY + FLOW_NODE_H + FLOW_PAD
-      : y + FLOW_PAD;
-
-    // Background stage node
-    const flowNodes: Node[] = [
-      {
-        id:       `${cluster.cluster_id}__bg`,
-        type:     "clusterGroup",
-        position: { x: 0, y: 0 },
-        style:    { width: canvasW, height: canvasH, pointerEvents: "none" },
-        selectable: false,
-        draggable:  false,
-        data: {
-          label:       cluster.suggested_title || cluster.cluster_id,
-          summary:     cluster.functional_summary,
-          fileCount:   children.length,
-          colorBg:     color.bg,
-          colorBorder: color.border,
-          clusterId:   cluster.cluster_id,
-          isBackground: true,
-        },
-      },
-    ];
-
-    // Connected nodes (full opacity, in DAG positions)
-    for (const child of flowChildren) {
-      const id  = String(child.id);
-      const pos = posMap.get(id) ?? { x: FLOW_PAD, y: FLOW_PAD };
-      flowNodes.push({
-        id,
-        type:     "fileCard",
-        position: pos,
-        style:    { width: FLOW_NODE_W },
-        data: {
-          ...child,
-          clusterId:    cluster.cluster_id,
-          clusterColor: color.border,
-          flowActive:   true,
-          isFlowOrphan: false,
-        },
-      });
-    }
-
-    // Orphan nodes (dimmed, bottom row)
-    orphanChildren.forEach((child, idx) => {
-      const id = String(child.id);
-      flowNodes.push({
-        id,
-        type:     "fileCard",
-        position: {
-          x: orphanStartX + idx * (FLOW_NODE_W + FLOW_H_GAP),
-          y: orphanY,
-        },
-        style: { width: FLOW_NODE_W },
-        data: {
-          ...child,
-          clusterId:    cluster.cluster_id,
-          clusterColor: color.border,
-          flowActive:   true,
-          isFlowOrphan: true,
-        },
-      });
-    });
-
-    // Flow edges with called_names labels
-    const flowEdges: Edge[] = activeEdges.map((e) => {
-      let label: string | undefined;
-      if (e.called_names && e.called_names.length > 0) {
-        const joined = e.called_names.join(", ");
-        label = joined.length > 32 ? joined.substring(0, 29) + "…" : joined;
-      } else if (e.binding) {
-        label = e.binding.length > 32 ? e.binding.substring(0, 29) + "…" : e.binding;
-      }
-
-      return {
-        id:       `flow-${e.source_id}-${e.target_id}`,
-        source:   String(e.source_id),
-        target:   String(e.target_id),
-        animated: true,
-        type:     "smoothstep",
-        style:    { stroke: "rgba(6,182,212,0.9)", strokeWidth: 2 },
-        markerEnd: {
-          type:   "arrowclosed" as const,
-          width:  16,
-          height: 16,
-          color:  "rgba(6,182,212,0.9)",
-        },
-        label,
-        labelStyle:           { fill: "#67e8f9", fontSize: 10, fontWeight: 700, fontFamily: "monospace" },
-        labelBgStyle:         { fill: "rgba(8,20,30,0.95)", stroke: "rgba(6,182,212,0.4)", strokeWidth: 1 },
-        labelBgPadding:       [5, 3] as [number, number],
-        labelBgBorderRadius:  4,
-        data: { weight: e.weight },
-      };
-    });
-
-    clusterFlowDetails.set(cluster.cluster_id, { nodes: flowNodes, edges: flowEdges });
-  }
-
-  return { overviewNodes, overviewEdges, clusterDetails, clusterFlowDetails };
+  return { nodes: flowNodes, edges: flowEdges };
 }
