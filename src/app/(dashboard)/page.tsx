@@ -5,7 +5,8 @@ import { organizationService } from "@/services/organization/organization.servic
 import { projectService } from "@/services/project/project.service";
 import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
 import { Building2, Clock, GitBranch, FolderArchive, Folder, ArrowRight } from "lucide-react";
-import type { Project } from "@/types/project/project.schema";
+import type { Blueprint, Project } from "@/types/project/project.schema";
+import DashboardGraphPreview from "@/components/project/DashboardGraphPreview";
 
 export default async function WorkspacePage() {
   const cookieStore = await cookies();
@@ -35,6 +36,12 @@ export default async function WorkspacePage() {
   })[0] ?? null;
 
   const hasAnalysis = lastProject?.analysisStatus === "COMPLETED";
+
+  const blueprint: Blueprint | null = hasAnalysis && lastProject
+    ? await projectService
+        .getBlueprint(token, lastProject.organizationId, lastProject.id)
+        .catch(() => null)
+    : null;
 
   return (
     <div className="max-w-5xl mx-auto flex flex-col gap-6">
@@ -130,10 +137,11 @@ export default async function WorkspacePage() {
               )}
             </div>
 
-            {hasAnalysis ? (
-              /* Placeholder — replace with actual graph component when analysis is ready */
+            {hasAnalysis && blueprint ? (
+              <DashboardGraphPreview blueprint={blueprint} projectId={lastProject.id} />
+            ) : hasAnalysis && !blueprint ? (
               <div className="flex items-center justify-center h-64 text-sm text-zinc-400">
-                Graph visualization coming soon
+                Could not load graph data
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-64 text-center px-6">

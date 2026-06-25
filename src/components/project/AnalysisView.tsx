@@ -83,7 +83,9 @@ export default function AnalysisView({ organizationId, projectId, initialStatus 
       const res = await fetch(`/api/project/blueprint?organizationId=${organizationId}&projectId=${projectId}`);
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        throw new Error(body?.message ?? "Failed to load results");
+        const detail = body?.message ?? res.statusText ?? "Unknown error";
+        // Surface the real reason: status not COMPLETED vs file missing vs analyzer down.
+        throw new Error(`HTTP ${res.status} — ${detail}`);
       }
       const data = await res.json() as Blueprint;
       setBlueprint(data);

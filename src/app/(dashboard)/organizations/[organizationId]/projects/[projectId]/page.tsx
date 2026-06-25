@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
-import { redirect, notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import { projectService } from "@/services/project/project.service";
+import { ApiError } from "@/lib/exception";
 import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
 import ProjectMembersPanel from "@/components/project/ProjectMembersPanel";
 import UploadCodebase from "@/components/project/UploadCodebase";
@@ -16,12 +17,54 @@ export default async function ProjectPage({ params }: Props) {
   const token = cookieStore.get(AUTH_TOKEN_COOKIE)?.value;
   if (!token) redirect("/login");
 
-  const [project, members] = await Promise.all([
-    projectService.getById(token, organizationId, projectId).catch(() => null),
-    projectService.listMembers(token, organizationId, projectId).catch(() => []),
-  ]);
+  let project;
+  let members: Awaited<ReturnType<typeof projectService.listMembers>> = [];
+  let loadError: string | null = null;
+  try {
+    [project, members] = await Promise.all([
+      projectService.getById(token, organizationId, projectId),
+      projectService.listMembers(token, organizationId, projectId),
+    ]);
+  } catch (e) {
+    if (e instanceof ApiError) {
+      // 404 means the project genuinely doesn't exist for this org — render the
+      // not-found page. Anything else (401/403/500) is a real error and must NOT
+      // be silently turned into a 404, or the user has no way to tell what broke.
+      if (e.status === 404) {
+        return (
+          <div className="max-w-4xl mx-auto w-full">
+            <h1 className="text-2xl font-semibold text-zinc-900">Project not found</h1>
+            <p className="mt-2 text-sm text-zinc-600">
+              This project doesn&apos;t exist in this organization, or you don&apos;t have access to it.
+            </p>
+          </div>
+        );
+      }
+      loadError = `${e.status}: ${e.message}`;
+    } else {
+      loadError = e instanceof Error ? e.message : "Failed to load project";
+    }
+  }
 
-  if (!project) notFound();
+  if (loadError) {
+    return (
+      <div className="max-w-4xl mx-auto w-full">
+        <h1 className="text-2xl font-semibold text-zinc-900">Couldn&apos;t load project</h1>
+        <p className="mt-2 text-sm text-red-600">{loadError}</p>
+        <p className="mt-1 text-xs text-zinc-500">
+          org={organizationId} project={projectId}
+        </p>
+      </div>
+    );
+  }
+
+  if (!project) {
+    return (
+      <div className="max-w-4xl mx-auto w-full">
+        <h1 className="text-2xl font-semibold text-zinc-900">Project not found</h1>
+      </div>
+    );
+  }
 
   const needsUpload = project.analysisStatus === "PENDING_UPLOAD";
   const showAnalysisView = !needsUpload;
