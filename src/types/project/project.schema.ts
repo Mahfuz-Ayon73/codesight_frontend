@@ -65,11 +65,12 @@ export interface BlueprintNode {
 export interface BlueprintEdge {
   source: string;       // canonical path
   target: string;       // canonical path
-  type: string;         // "import"
+  type: string;         // "BELONGS_TO_DOMAIN" | "RENDERS" | "SEMANTIC_SIMILARITY"
   weight: number;
   binding?: string;
   called_names?: string[];
   is_dead_import?: boolean;
+  is_synthetic?: boolean;
 }
 
 export interface BlueprintCluster {
