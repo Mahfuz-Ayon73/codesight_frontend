@@ -2,16 +2,21 @@
 
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Layers, ChevronRight } from "lucide-react";
+import { Layers, ChevronRight, X } from "lucide-react";
 
 interface ClusterGroupData {
-  label:        string;
-  summary:      string;
-  fileCount:    number;
-  colorBg:      string;
-  colorBorder:  string;
-  clusterId:    string;
-  isBackground?: boolean;
+  label:           string;
+  summary:         string;
+  fileCount:       number;
+  colorBg:         string;
+  colorBorder:     string;
+  clusterId:       string;
+  isBackground?:   boolean;
+  isMerged?:       boolean;
+  mergedCount?:    number;
+  onUnmerge?:      (mergeId: string) => void;
+  isMultiSelected?: boolean;
+  hideName?:       boolean;
   [key: string]: unknown;
 }
 
@@ -57,41 +62,98 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
   }
 
   // Overview node — clickable pill card
+  const isSelected = selected || d.isMultiSelected;
   return (
     <div
       className="relative w-full h-full rounded-2xl transition-all duration-200 cursor-pointer group"
       style={{
         background:   d.colorBg,
-        border:       `1.5px solid ${selected ? "rgba(255,255,255,0.5)" : d.colorBorder}`,
+        border:       d.isMerged
+          ? `1.5px dashed ${isSelected ? "rgba(255,255,255,0.6)" : d.colorBorder}`
+          : `1.5px solid ${isSelected ? "rgba(255,255,255,0.6)" : d.colorBorder}`,
         backdropFilter: "blur(10px)",
         WebkitBackdropFilter: "blur(10px)",
-        boxShadow: selected
-          ? `0 0 0 3px ${d.colorBorder}, 0 8px 32px rgba(0,0,0,0.30)`
-          : `0 2px 16px rgba(0,0,0,0.18)`,
+        boxShadow: d.isMultiSelected
+          ? `0 0 0 3px rgba(99,102,241,0.75), 0 8px 32px rgba(99,102,241,0.20)`
+          : isSelected
+            ? `0 0 0 3px ${d.colorBorder}, 0 8px 32px rgba(0,0,0,0.30)`
+            : `0 2px 16px rgba(0,0,0,0.18)`,
       }}
     >
       <Handle type="target" position={Position.Top}    style={{ opacity: 0 }} />
       <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
 
+      {/* Multi-select indicator */}
+      {d.isMultiSelected && (
+        <div className="absolute top-2 left-2 z-10 w-4 h-4 rounded-full flex items-center justify-center"
+          style={{ background: "rgba(99,102,241,0.90)", border: "1.5px solid rgba(165,180,252,0.6)" }}>
+          <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+            <path d="M1.5 4L3 5.5L6.5 2" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </div>
+      )}
+
+      {/* Unmerge button — only for merged clusters */}
+      {d.isMerged && d.onUnmerge && (
+        <button
+          className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center justify-center w-4 h-4 rounded-full bg-white/10 hover:bg-red-500/50"
+          title="Unmerge"
+          onClick={(e) => { e.stopPropagation(); (d.onUnmerge as (id: string) => void)(d.clusterId); }}
+        >
+          <X size={8} color="#fff" />
+        </button>
+      )}
+
       {/* Icon + title */}
       <div className="absolute top-3 left-3 flex items-center gap-1.5 pointer-events-none select-none">
-        <div
-          className="flex items-center justify-center w-6 h-6 rounded-md shrink-0"
-          style={{ background: d.colorBorder }}
-        >
-          <Layers size={12} color="#fff" />
-        </div>
-        <div className="min-w-0">
-          <p
-            className="text-[11px] font-semibold leading-tight truncate max-w-[150px]"
-            style={{ color: d.colorBorder.replace("0.50", "0.95") }}
+        {/* Stacked layers for merged clusters */}
+        {d.isMerged ? (
+          <div className="relative w-6 h-6 shrink-0">
+            <div
+              className="absolute top-1 left-1 flex items-center justify-center w-5 h-5 rounded-md opacity-50"
+              style={{ background: d.colorBorder }}
+            >
+              <Layers size={10} color="#fff" />
+            </div>
+            <div
+              className="absolute top-0 left-0 flex items-center justify-center w-5 h-5 rounded-md"
+              style={{ background: d.colorBorder }}
+            >
+              <Layers size={10} color="#fff" />
+            </div>
+          </div>
+        ) : (
+          <div
+            className="flex items-center justify-center w-6 h-6 rounded-md shrink-0"
+            style={{ background: d.colorBorder }}
           >
-            {d.label}
-          </p>
-          <p className="text-[9px] text-white/35 mt-0.5 truncate max-w-[150px]">
+            <Layers size={12} color="#fff" />
+          </div>
+        )}
+        {!d.hideName && (
+          <div className="min-w-0">
+            <p
+              className="text-[11px] font-semibold leading-tight truncate max-w-[150px]"
+              style={{ color: d.colorBorder.replace("0.50", "0.95") }}
+            >
+              {d.label}
+            </p>
+            <p className="text-[9px] text-white/35 mt-0.5 truncate max-w-[150px]">
+              {d.isMerged ? `${d.mergedCount ?? "?"} merged clusters` : `${d.fileCount} files`}
+            </p>
+          </div>
+        )}
+        {d.hideName && (
+          <span
+            className="text-[9px] font-mono px-1.5 py-0.5 rounded-full"
+            style={{
+              background: d.colorBorder.replace("0.50", "0.12"),
+              color:      d.colorBorder.replace("0.50", "0.70"),
+            }}
+          >
             {d.fileCount} files
-          </p>
-        </div>
+          </span>
+        )}
       </div>
 
       {/* Click to open hint */}

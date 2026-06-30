@@ -17,12 +17,18 @@ import {
 import { computeClusterRelationships } from "./useClusterRelationships";
 import ClusterGroupNode from "./ClusterGroupNode";
 import FileCardNode from "./FileCardNode";
-import { Layers, FileCode, GitBranch, ArrowLeft, Info, Link2, Unlink, ChevronRight } from "lucide-react";
+import {
+  useClusterMerges, applyMerges, suggestMerges, type ClusterMerge,
+} from "./useClusterMerges";
+import {
+  Layers, FileCode, GitBranch, ArrowLeft, Info, Link2, Unlink,
+  ChevronRight, ChevronLeft, GitMerge, Sparkles, Check, X,
+} from "lucide-react";
 
 const NODE_TYPES = { clusterGroup: ClusterGroupNode, fileCard: FileCardNode };
 
 // ---------------------------------------------------------------------------
-// Overrides persistence
+// Overrides persistence (localStorage — for severed edges)
 // ---------------------------------------------------------------------------
 interface UserOverrides {
   projectId: string;
@@ -47,27 +53,35 @@ function saveOverrides(o: UserOverrides) {
 type ViewMode = "cluster-list" | "file-detail";
 
 interface NavEntry {
-  clusterId: string | null;  // null = root
+  clusterId: string | null;  // null = root; merge id = merged group
   label: string;
+  isMergedGroup?: boolean;   // true when this level shows original clusters inside a merge
+  sourceIds?: string[];      // only set when isMergedGroup = true
 }
 
 // ---------------------------------------------------------------------------
 // Inner canvas
 // ---------------------------------------------------------------------------
-function InnerCanvas({ blueprint, projectId }: { blueprint: Blueprint; projectId: string }) {
+function InnerCanvas({
+  blueprint, projectId, orgId,
+}: {
+  blueprint: Blueprint;
+  projectId: string;
+  orgId?: string;
+}) {
   const { fitView } = useReactFlow();
   const overridesRef = useRef<UserOverrides>(loadOverrides(projectId));
 
   // Pre-build the full cluster index once
   const index = useMemo(() => buildClusterIndex(blueprint), [blueprint]);
 
-  // Navigation stack — each entry is the cluster whose *children* we are viewing
-  // stack[0] = { clusterId: null, label: "Overview" } = root
+  // Navigation stack
   const [navStack, setNavStack] = useState<NavEntry[]>([{ clusterId: null, label: "Overview" }]);
-  const currentParentId = navStack[navStack.length - 1].clusterId;
+  const currentEntry    = navStack[navStack.length - 1];
+  const currentParentId = currentEntry.clusterId;
 
-  // View mode: showing cluster pills or files inside a leaf cluster
-  const [viewMode, setViewMode] = useState<ViewMode>("cluster-list");
+  // View mode: cluster pills or files inside a leaf
+  const [viewMode, setViewMode]       = useState<ViewMode>("cluster-list");
   const [activeLeaf, setActiveLeaf]   = useState<string | null>(null);
   const [flowActive, setFlowActive]   = useState(false);
   const [connectivity, setConnectivity] = useState<ReturnType<typeof computeClusterRelationships> | null>(null);
@@ -75,26 +89,40 @@ function InnerCanvas({ blueprint, projectId }: { blueprint: Blueprint; projectId
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
-  // The clusters visible at the current navigation level
-  const visibleClusters = useMemo(
-    () => (index.childrenOf.get(currentParentId) ?? [])
-      .filter((c) => c.id !== "c_global_shared"),
-    [index, currentParentId]
-  );
+  // Multi-select state (shift-click)
+  const [selectedClusterIds, setSelectedClusterIds] = useState<Set<string>>(new Set());
+  // Smart Merge panel
+  const [showMergePanel, setShowMergePanel]   = useState(false);
+  // Pending merge name prompt (null = hidden, string = name being typed)
+  const [pendingMergeName, setPendingMergeName] = useState<string | null>(null);
+  // Collapsible right sidebar — auto-opens when drilling into a merged group
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Color index offset so colours are stable per parent
-  const colorOffset = useMemo(
-    () => {
-      const idx = blueprint.clusters.findIndex((c) => c.id === currentParentId);
-      return ((idx < 0 ? 0 : idx) % CLUSTER_COLORS.length);
-    },
-    [blueprint, currentParentId]
-  );
+  // Merge persistence
+  const { merges, addMerge, removeMerge } = useClusterMerges(orgId ?? "", projectId);
 
-  // Compute inter-cluster edges at the current level
+  // ---------------------------------------------------------------------------
+  // Visible clusters — respects merged-group nav entries
+  // ---------------------------------------------------------------------------
+  const visibleClusters = useMemo(() => {
+    if (currentEntry.isMergedGroup && currentEntry.sourceIds) {
+      return currentEntry.sourceIds
+        .map((id) => index.clusterById.get(id))
+        .filter((c): c is NonNullable<typeof c> => c != null);
+    }
+    return (index.childrenOf.get(currentParentId) ?? [])
+      .filter((c) => c.id !== "c_global_shared");
+  }, [index, currentParentId, currentEntry]);
+
+  // Color index offset
+  const colorOffset = useMemo(() => {
+    const idx = blueprint.clusters.findIndex((c) => c.id === currentParentId);
+    return ((idx < 0 ? 0 : idx) % CLUSTER_COLORS.length);
+  }, [blueprint, currentParentId]);
+
+  // Inter-cluster edges at the current level
   const levelEdges = useMemo(() => {
     const clusterSet = new Set(visibleClusters.map((c) => c.id));
-    // Map each node → which visible cluster it belongs to (via ancestry)
     const nodeToVisible = new Map<string, string>();
     function assign(cid: string, visibleAncestor: string) {
       for (const n of (index.nodesOf.get(cid) ?? [])) nodeToVisible.set(n.id, visibleAncestor);
@@ -123,14 +151,61 @@ function InnerCanvas({ blueprint, projectId }: { blueprint: Blueprint; projectId
     return result;
   }, [visibleClusters, index, blueprint.edges]);
 
-  // ------------------------------------------------------------------
+  // When drilled inside a merged group, suppress that group's own merge so source clusters show individually
+  const activeMerges = useMemo(() => {
+    if (currentEntry.isMergedGroup && currentEntry.sourceIds) {
+      const sourceSet = new Set(currentEntry.sourceIds);
+      return merges.filter((m) => !m.sourceIds.every((sid) => sourceSet.has(sid)));
+    }
+    return merges;
+  }, [merges, currentEntry]);
+
+  // Auto-open sidebar when entering a merged group, close when leaving
+  useEffect(() => {
+    setSidebarOpen(!!currentEntry.isMergedGroup);
+  }, [currentEntry.isMergedGroup]);
+
+  // Apply merges → virtual clusters + edges
+  const { virtualClusters, virtualEdges, fileCountOverride } = useMemo(
+    () => applyMerges(visibleClusters, levelEdges, activeMerges, index),
+    [visibleClusters, levelEdges, activeMerges, index]
+  );
+
+  // Smart merge suggestions (computed only when panel is open)
+  const suggestions = useMemo(() => {
+    if (!showMergePanel) return [];
+    return suggestMerges(levelEdges, visibleClusters);
+  }, [showMergePanel, levelEdges, visibleClusters]);
+
+  // ---------------------------------------------------------------------------
   // Render the current level onto the canvas
-  // ------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  const mergeById = useMemo(() => new Map(activeMerges.map((m) => [m.id, m])), [activeMerges]);
+
   useEffect(() => {
     if (viewMode === "cluster-list") {
-      const { nodes: pillNodes } = layoutClusterPills(visibleClusters, index, colorOffset);
-      setNodes(pillNodes);
-      setEdges(levelEdges);
+      const { nodes: pillNodes } = layoutClusterPills(virtualClusters, index, colorOffset, fileCountOverride);
+
+      // Enrich nodes with merge/selection data
+      const inMergedGroup = !!currentEntry.isMergedGroup;
+      const enriched = pillNodes.map((n) => {
+        const cid = n.data.clusterId as string;
+        const merge = mergeById.get(cid);
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            isMultiSelected: selectedClusterIds.has(cid),
+            isMerged:    !!merge,
+            mergedCount: merge?.sourceIds.length,
+            onUnmerge:   merge ? removeMerge : undefined,
+            hideName:    inMergedGroup,
+          },
+        };
+      });
+
+      setNodes(enriched);
+      setEdges(virtualEdges);
       setConnectivity(null);
       setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 60);
     } else if (viewMode === "file-detail" && activeLeaf) {
@@ -163,40 +238,66 @@ function InnerCanvas({ blueprint, projectId }: { blueprint: Blueprint; projectId
       }
       setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 60);
     }
-  }, [viewMode, activeLeaf, flowActive, visibleClusters, levelEdges, index, blueprint, colorOffset, fitView, setNodes, setEdges]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, activeLeaf, flowActive, virtualClusters, virtualEdges, fileCountOverride, mergeById, selectedClusterIds, removeMerge, index, blueprint, colorOffset, fitView, setNodes, setEdges]);
 
-  // ------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // Click handler
-  // ------------------------------------------------------------------
-  const onNodeClick: NodeMouseHandler = useCallback((_, node) => {
+  // ---------------------------------------------------------------------------
+  const onNodeClick: NodeMouseHandler = useCallback((event, node) => {
     if (node.type !== "clusterGroup") return;
     const clusterId = node.data.clusterId as string;
-    const hasChildren = !!(node.data.hasChildren);
 
+    // Shift-click = multi-select toggle (cluster-list mode only)
+    if ((event as React.MouseEvent).shiftKey && viewMode === "cluster-list") {
+      setSelectedClusterIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(clusterId)) next.delete(clusterId); else next.add(clusterId);
+        return next;
+      });
+      return;
+    }
+
+    // Clear selection on normal click
+    setSelectedClusterIds(new Set());
+    setShowMergePanel(false);
+
+    // Merged group → drill into its source clusters
+    const merge = mergeById.get(clusterId);
+    if (merge) {
+      const label = (node.data.label as string) || merge.label;
+      setNavStack((prev) => [...prev, { clusterId, label, isMergedGroup: true, sourceIds: merge.sourceIds }]);
+      setViewMode("cluster-list");
+      setActiveLeaf(null);
+      setFlowActive(false);
+      return;
+    }
+
+    const hasChildren = !!(node.data.hasChildren);
     if (hasChildren) {
-      // Drill into children
       const label = (node.data.label as string) || clusterId;
       setNavStack((prev) => [...prev, { clusterId, label }]);
       setViewMode("cluster-list");
       setActiveLeaf(null);
       setFlowActive(false);
     } else {
-      // Leaf — show files
       setActiveLeaf(clusterId);
       setViewMode("file-detail");
       setFlowActive(false);
     }
-  }, []);
+  }, [viewMode, mergeById]);
 
-  // ------------------------------------------------------------------
-  // Navigate back via breadcrumb
-  // ------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Navigation
+  // ---------------------------------------------------------------------------
   const goToLevel = useCallback((idx: number) => {
     setNavStack((prev) => prev.slice(0, idx + 1));
     setViewMode("cluster-list");
     setActiveLeaf(null);
     setFlowActive(false);
     setConnectivity(null);
+    setSelectedClusterIds(new Set());
+    setShowMergePanel(false);
   }, []);
 
   const goBack = useCallback(() => {
@@ -210,9 +311,35 @@ function InnerCanvas({ blueprint, projectId }: { blueprint: Blueprint; projectId
     }
   }, [viewMode, navStack, goToLevel]);
 
-  // ------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Merge actions
+  // ---------------------------------------------------------------------------
+  const handleMergeSelected = useCallback(() => {
+    if (selectedClusterIds.size < 2) return;
+    // Pre-fill name from selected cluster titles
+    const autoName = [...selectedClusterIds]
+      .map((id) => index.clusterById.get(id)?.suggested_title ?? index.clusterById.get(id)?.name ?? id)
+      .join(" + ");
+    setPendingMergeName(autoName);
+  }, [selectedClusterIds, index]);
+
+  const confirmMerge = useCallback(() => {
+    if (pendingMergeName === null) return;
+    const sourceIds = [...selectedClusterIds];
+    const label = pendingMergeName.trim() ||
+      sourceIds.map((id) => index.clusterById.get(id)?.suggested_title ?? id).join(" + ");
+    addMerge({ id: `__merge__${crypto.randomUUID()}`, label, sourceIds });
+    setSelectedClusterIds(new Set());
+    setPendingMergeName(null);
+  }, [pendingMergeName, selectedClusterIds, index, addMerge]);
+
+  const applySuggestion = useCallback((suggestion: ClusterMerge) => {
+    addMerge(suggestion);
+  }, [addMerge]);
+
+  // ---------------------------------------------------------------------------
   // Edge deletion
-  // ------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   const onEdgesDelete: OnEdgesDelete = useCallback((deleted) => {
     const overrides = overridesRef.current;
     for (const e of deleted) {
@@ -231,7 +358,8 @@ function InnerCanvas({ blueprint, projectId }: { blueprint: Blueprint; projectId
   const meta           = blueprint.project_metadata;
   const isRoot         = navStack.length === 1 && viewMode === "cluster-list";
   const activeCluster  = activeLeaf ? index.clusterById.get(activeLeaf) : null;
-  const canGoBack      = !isRoot || viewMode === "file-detail";
+  const canGoBack      = !isRoot;
+  const mergesActive   = !!orgId;
 
   return (
     <div className="relative w-full h-full rounded-2xl overflow-hidden" style={{ background: "#080810" }}>
@@ -259,7 +387,6 @@ function InnerCanvas({ blueprint, projectId }: { blueprint: Blueprint; projectId
           <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs flex-wrap"
             style={{ background: "rgba(8,8,16,0.88)", border: "1px solid rgba(255,255,255,0.08)", backdropFilter: "blur(14px)", color: "rgba(255,255,255,0.55)" }}
           >
-            {/* Back button */}
             {canGoBack && (
               <button onClick={goBack} className="flex items-center gap-1 text-indigo-400 hover:text-indigo-300 transition-colors mr-1">
                 <ArrowLeft size={11} />
@@ -267,7 +394,6 @@ function InnerCanvas({ blueprint, projectId }: { blueprint: Blueprint; projectId
               </button>
             )}
 
-            {/* Breadcrumb trail */}
             {navStack.map((entry, idx) => (
               <span key={idx} className="flex items-center gap-1">
                 {idx > 0 && <ChevronRight size={9} className="text-white/20" />}
@@ -282,7 +408,6 @@ function InnerCanvas({ blueprint, projectId }: { blueprint: Blueprint; projectId
               </span>
             ))}
 
-            {/* File detail level */}
             {viewMode === "file-detail" && activeCluster && (
               <>
                 <ChevronRight size={9} className="text-white/20" />
@@ -290,7 +415,6 @@ function InnerCanvas({ blueprint, projectId }: { blueprint: Blueprint; projectId
                   {activeCluster.suggested_title ?? activeCluster.name ?? activeLeaf}
                 </span>
 
-                {/* Structure / Flow toggle */}
                 <div className="flex items-center bg-zinc-950/60 rounded-lg p-0.5 border border-white/5 ml-2">
                   <button onClick={() => setFlowActive(false)}
                     className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all ${!flowActive ? "bg-indigo-600/85 text-white" : "text-zinc-400 hover:text-zinc-200"}`}>
@@ -302,7 +426,6 @@ function InnerCanvas({ blueprint, projectId }: { blueprint: Blueprint; projectId
                   </button>
                 </div>
 
-                {/* Connectivity summary */}
                 {connectivity && (
                   <>
                     <span className="text-white/15 ml-1">|</span>
@@ -323,38 +446,233 @@ function InnerCanvas({ blueprint, projectId }: { blueprint: Blueprint; projectId
               </>
             )}
 
-            {/* Root stats */}
             {isRoot && (
               <>
                 <span className="text-white/15 mx-1">|</span>
-                <span className="flex items-center gap-1.5"><Layers size={11} className="text-indigo-400" />{meta.total_clusters} clusters</span>
+                <span className="flex items-center gap-1.5"><Layers size={11} className="text-indigo-400" />{virtualClusters.length} clusters</span>
                 <span className="flex items-center gap-1.5"><FileCode size={11} className="text-emerald-400" />{meta.total_nodes_indexed} files</span>
                 <span className="flex items-center gap-1.5"><GitBranch size={11} className="text-zinc-500" />{meta.total_edges} edges</span>
               </>
             )}
 
-            {/* Current level count */}
             {!isRoot && viewMode === "cluster-list" && (
               <>
                 <span className="text-white/15 mx-1">|</span>
-                <span className="text-white/40">{visibleClusters.length} sub-clusters</span>
+                <span className="text-white/40">
+                  {virtualClusters.length} {currentEntry.isMergedGroup ? "clusters" : "sub-clusters"}
+                </span>
+                {currentEntry.isMergedGroup && (
+                  <span className="flex items-center gap-1 text-indigo-400/70">
+                    <GitMerge size={9} />
+                    <span className="text-[9px]">merged group</span>
+                  </span>
+                )}
               </>
             )}
           </div>
         </Panel>
 
-        {/* Hint */}
+        {/* Top-right: hint + merge controls */}
         <Panel position="top-right">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-mono"
-            style={{ background: "rgba(8,8,16,0.88)", border: "1px solid rgba(255,255,255,0.07)", backdropFilter: "blur(14px)",
-              color: viewMode === "cluster-list" ? "rgba(99,102,241,0.85)" : "rgba(16,185,129,0.85)" }}>
-            <Info size={9} />
-            {viewMode === "cluster-list"
-              ? "Click a cluster to drill in"
-              : flowActive ? "Flow mode — active calls only" : "Delete key removes edges"}
+          <div className="flex flex-col items-end gap-2">
+
+            {/* Merge-selected prompt */}
+            {pendingMergeName !== null && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-[11px]"
+                style={{ background: "rgba(8,8,16,0.95)", border: "1px solid rgba(99,102,241,0.40)", backdropFilter: "blur(14px)" }}>
+                <input
+                  autoFocus
+                  value={pendingMergeName}
+                  onChange={(e) => setPendingMergeName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") confirmMerge(); if (e.key === "Escape") setPendingMergeName(null); }}
+                  placeholder="Merge group name…"
+                  className="bg-transparent outline-none text-white/80 w-44 placeholder:text-white/25"
+                />
+                <button onClick={confirmMerge} className="text-indigo-400 hover:text-indigo-300 transition-colors" title="Confirm merge">
+                  <Check size={12} />
+                </button>
+                <button onClick={() => setPendingMergeName(null)} className="text-white/30 hover:text-white/60 transition-colors" title="Cancel">
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+
+            {/* Smart Merge suggestion panel */}
+            {showMergePanel && (
+              <div className="flex flex-col gap-2 px-3 py-2.5 rounded-xl max-w-xs"
+                style={{ background: "rgba(8,8,16,0.95)", border: "1px solid rgba(99,102,241,0.25)", backdropFilter: "blur(14px)" }}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-semibold text-white/50 uppercase tracking-widest">Smart Merge</span>
+                  <button onClick={() => setShowMergePanel(false)} className="text-white/25 hover:text-white/60 transition-colors">
+                    <X size={10} />
+                  </button>
+                </div>
+                {suggestions.length === 0 ? (
+                  <p className="text-[10px] text-white/30 italic">No strongly-connected pairs found at current threshold.</p>
+                ) : (
+                  suggestions.map((s) => (
+                    <div key={s.id} className="flex items-center gap-2 py-1 border-t border-white/5">
+                      <span className="flex-1 text-[10px] text-white/60 truncate">{s.label}</span>
+                      <span className="text-[9px] font-mono text-white/25 shrink-0">{s.sourceIds.length} clusters</span>
+                      <button
+                        onClick={() => { applySuggestion(s); }}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-semibold transition-all shrink-0"
+                        style={{ background: "rgba(99,102,241,0.20)", border: "1px solid rgba(99,102,241,0.35)", color: "rgba(165,180,252,0.9)" }}
+                      >
+                        <GitMerge size={8} /> Merge
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* Merge-selected bar (appears when 2+ clusters selected) */}
+            {mergesActive && viewMode === "cluster-list" && selectedClusterIds.size >= 2 && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px]"
+                style={{ background: "rgba(8,8,16,0.92)", border: "1px solid rgba(99,102,241,0.35)", backdropFilter: "blur(14px)" }}>
+                <GitMerge size={10} className="text-indigo-400" />
+                <span className="text-white/60">{selectedClusterIds.size} selected</span>
+                <button
+                  onClick={handleMergeSelected}
+                  className="px-2 py-0.5 rounded-lg font-semibold transition-all"
+                  style={{ background: "rgba(99,102,241,0.25)", color: "rgba(165,180,252,0.95)" }}
+                >
+                  Merge
+                </button>
+                <button onClick={() => setSelectedClusterIds(new Set())} className="text-white/25 hover:text-white/60 transition-colors ml-1">
+                  <X size={9} />
+                </button>
+              </div>
+            )}
+
+            {/* Hint + Smart Merge toggle */}
+            <div className="flex items-center gap-2">
+              {mergesActive && viewMode === "cluster-list" && (
+                <button
+                  onClick={() => { setShowMergePanel((v) => !v); setSelectedClusterIds(new Set()); }}
+                  title="Suggest cluster merges based on edge density"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-semibold transition-all"
+                  style={{
+                    background:     showMergePanel ? "rgba(99,102,241,0.20)" : "rgba(8,8,16,0.88)",
+                    border:         `1px solid ${showMergePanel ? "rgba(99,102,241,0.45)" : "rgba(255,255,255,0.07)"}`,
+                    backdropFilter: "blur(14px)",
+                    color:          showMergePanel ? "rgba(165,180,252,0.95)" : "rgba(255,255,255,0.40)",
+                  }}
+                >
+                  <Sparkles size={9} />
+                  Smart Merge
+                </button>
+              )}
+
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-mono"
+                style={{ background: "rgba(8,8,16,0.88)", border: "1px solid rgba(255,255,255,0.07)", backdropFilter: "blur(14px)",
+                  color: viewMode === "cluster-list" ? "rgba(99,102,241,0.85)" : "rgba(16,185,129,0.85)" }}>
+                <Info size={9} />
+                {viewMode === "cluster-list"
+                  ? (selectedClusterIds.size > 0 ? "Shift-click to select · Merge to combine" : "Click to drill in · Shift-click to select")
+                  : flowActive ? "Flow mode — active calls only" : "Delete key removes edges"}
+              </div>
+            </div>
           </div>
         </Panel>
       </ReactFlow>
+
+      {/* ── Collapsible right sidebar (merged-group drill-in view) ── */}
+      {currentEntry.isMergedGroup && (
+        <div className="absolute top-0 right-0 h-full flex z-30 pointer-events-none">
+          {/* Toggle tab — always visible */}
+          <div className="pointer-events-auto flex items-center">
+            <button
+              onClick={() => setSidebarOpen((v) => !v)}
+              title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+              className="flex items-center justify-center w-5 h-16 rounded-l-lg transition-colors"
+              style={{
+                background: "rgba(99,102,241,0.18)",
+                border: "1px solid rgba(99,102,241,0.30)",
+                borderRight: "none",
+                color: "rgba(165,180,252,0.8)",
+              }}
+            >
+              {sidebarOpen ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
+            </button>
+          </div>
+
+          {/* Sidebar panel */}
+          {sidebarOpen && (
+            <div
+              className="pointer-events-auto flex flex-col h-full w-72 overflow-hidden"
+              style={{
+                background: "rgba(8,8,20,0.96)",
+                borderLeft: "1px solid rgba(99,102,241,0.22)",
+                backdropFilter: "blur(18px)",
+              }}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 py-3 shrink-0"
+                style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                <div>
+                  <p className="text-[11px] font-semibold text-white/80">Merged Clusters</p>
+                  <p className="text-[10px] text-white/35 mt-0.5">
+                    {visibleClusters.length} cluster{visibleClusters.length !== 1 ? "s" : ""} inside this group
+                  </p>
+                </div>
+                <GitMerge size={13} className="text-indigo-400 shrink-0" />
+              </div>
+
+              {/* Cluster list */}
+              <div className="flex-1 overflow-y-auto py-2">
+                {visibleClusters.map((cluster, i) => {
+                  const rawIdx = blueprint.clusters.findIndex((c) => c.id === cluster.id);
+                  const ci = ((rawIdx < 0 ? i : rawIdx) % CLUSTER_COLORS.length + CLUSTER_COLORS.length) % CLUSTER_COLORS.length;
+                  const color = CLUSTER_COLORS[ci];
+                  const fileCount = index.descendantCount.get(cluster.id) ?? 0;
+                  const childCount = (index.childrenOf.get(cluster.id) ?? []).length;
+                  const label = cluster.suggested_title ?? cluster.name ?? cluster.id;
+
+                  return (
+                    <div
+                      key={cluster.id}
+                      className="flex items-start gap-3 px-4 py-3 transition-colors cursor-default"
+                      style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
+                    >
+                      {/* Color dot + number */}
+                      <div className="flex flex-col items-center gap-1 shrink-0 mt-0.5">
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ background: color.border }} />
+                        <span className="text-[8px] font-mono" style={{ color: "rgba(255,255,255,0.20)" }}>{i + 1}</span>
+                      </div>
+
+                      {/* Info */}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-semibold leading-snug" style={{ color: color.border.replace("0.50", "0.90") }}>
+                          {label}
+                        </p>
+                        {cluster.functional_summary && (
+                          <p className="text-[10px] leading-relaxed mt-0.5 line-clamp-2" style={{ color: "rgba(255,255,255,0.38)" }}>
+                            {cluster.functional_summary}
+                          </p>
+                        )}
+                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full"
+                            style={{ background: color.border.replace("0.50", "0.10"), color: color.border.replace("0.50", "0.70") }}>
+                            {fileCount} files
+                          </span>
+                          {childCount > 0 && (
+                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full"
+                              style={{ background: "rgba(99,102,241,0.10)", color: "rgba(165,180,252,0.70)" }}>
+                              {childCount} sub-clusters
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -362,12 +680,16 @@ function InnerCanvas({ blueprint, projectId }: { blueprint: Blueprint; projectId
 // ---------------------------------------------------------------------------
 // Public export
 // ---------------------------------------------------------------------------
-export default function CodeSightCanvas({ blueprint, projectId }: { blueprint: Blueprint; projectId: string }) {
+export default function CodeSightCanvas({
+  blueprint, projectId, orgId,
+}: {
+  blueprint: Blueprint;
+  projectId: string;
+  orgId?: string;
+}) {
   const [ready, setReady] = useState(false);
-  const index = useMemo(() => buildClusterIndex(blueprint), [blueprint]);
 
   useEffect(() => {
-    // Index is cheap to build synchronously — just defer one tick for paint
     Promise.resolve().then(() => setReady(true));
   }, [blueprint]);
 
@@ -385,7 +707,7 @@ export default function CodeSightCanvas({ blueprint, projectId }: { blueprint: B
 
   return (
     <ReactFlowProvider>
-      <InnerCanvas blueprint={blueprint} projectId={projectId} />
+      <InnerCanvas blueprint={blueprint} projectId={projectId} orgId={orgId} />
     </ReactFlowProvider>
   );
 }

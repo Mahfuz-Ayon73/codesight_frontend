@@ -182,14 +182,14 @@ export default function AnalysisView({ organizationId, projectId, initialStatus 
     );
   }
 
-  return <BlueprintResults blueprint={blueprint} projectId={projectId} />;
+  return <BlueprintResults blueprint={blueprint} projectId={projectId} organizationId={organizationId} />;
 }
 
 // ---------------------------------------------------------------------------
 // Blueprint results
 // ---------------------------------------------------------------------------
 
-function BlueprintResults({ blueprint, projectId }: { blueprint: Blueprint; projectId: string }) {
+function BlueprintResults({ blueprint, projectId, organizationId }: { blueprint: Blueprint; projectId: string; organizationId: string }) {
   const [viewMode, setViewMode] = useState<"canvas" | "list">("canvas");
   const meta = blueprint.project_metadata;
 
@@ -238,7 +238,7 @@ function BlueprintResults({ blueprint, projectId }: { blueprint: Blueprint; proj
           className="-mx-6 w-[calc(100%+3rem)]"
           style={{ height: "calc(100vh - 200px)", minHeight: 560 }}
         >
-          <CodeSightCanvas blueprint={blueprint} projectId={projectId} />
+          <CodeSightCanvas blueprint={blueprint} projectId={projectId} orgId={organizationId} />
         </div>
       )}
 
@@ -247,17 +247,17 @@ function BlueprintResults({ blueprint, projectId }: { blueprint: Blueprint; proj
         <div className="flex flex-col gap-3">
           <p className="text-sm font-semibold text-zinc-700">Architectural Clusters</p>
           {blueprint.clusters
-            .filter((c) => !c.cluster_id.startsWith("shared_dep_"))
+            .filter((c) => !c.id.startsWith("shared_dep_"))
             .map((cluster) => (
-              <ClusterCard key={cluster.cluster_id} cluster={cluster} nodes={blueprint.nodes} />
+              <ClusterCard key={cluster.id} cluster={cluster} nodes={blueprint.nodes} />
             ))}
-          {blueprint.clusters.some((c) => c.cluster_id.startsWith("shared_dep_")) && (
+          {blueprint.clusters.some((c) => c.id.startsWith("shared_dep_")) && (
             <>
               <p className="text-sm font-semibold text-zinc-700 mt-2">Shared Dependencies</p>
               {blueprint.clusters
-                .filter((c) => c.cluster_id.startsWith("shared_dep_"))
+                .filter((c) => c.id.startsWith("shared_dep_"))
                 .map((cluster) => (
-                  <ClusterCard key={cluster.cluster_id} cluster={cluster} nodes={blueprint.nodes} />
+                  <ClusterCard key={cluster.id} cluster={cluster} nodes={blueprint.nodes} />
                 ))}
             </>
           )}
@@ -278,8 +278,7 @@ function MetaStat({ label, value }: { label: string; value: string }) {
 
 function ClusterCard({ cluster, nodes }: { cluster: Blueprint["clusters"][number]; nodes: Blueprint["nodes"] }) {
   const [open, setOpen] = useState(false);
-  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-  const clusterNodes = cluster.node_ids.map((id) => nodeMap.get(id)).filter(Boolean) as Blueprint["nodes"];
+  const clusterNodes = nodes.filter((n) => n.cluster_id === cluster.id);
   const godFiles = clusterNodes.filter((n) => n.is_god_file);
   const entryPoints = clusterNodes.filter((n) => n.execution_role === "ENTRY_POINT");
 
@@ -293,13 +292,13 @@ function ClusterCard({ cluster, nodes }: { cluster: Blueprint["clusters"][number
           <Layers size={15} />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-zinc-800 truncate">{cluster.suggested_title || cluster.cluster_id}</p>
+          <p className="text-sm font-semibold text-zinc-800 truncate">{cluster.suggested_title || cluster.id}</p>
           {cluster.functional_summary && (
             <p className="text-xs text-zinc-400 truncate mt-0.5">{cluster.functional_summary}</p>
           )}
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          <span className="text-xs text-zinc-400">{cluster.node_ids.length} files</span>
+          <span className="text-xs text-zinc-400">{clusterNodes.length} files</span>
           {open ? <ChevronDown size={14} className="text-zinc-400" /> : <ChevronRight size={14} className="text-zinc-400" />}
         </div>
       </button>
@@ -330,9 +329,10 @@ function ClusterCard({ cluster, nodes }: { cluster: Blueprint["clusters"][number
 
 function FileRow({ node }: { node: Blueprint["nodes"][number] }) {
   const roleIcon = {
-    ENTRY_POINT: <ArrowRight size={11} className="text-green-500" />,
-    TERMINAL_SINK: <ArrowLeft size={11} className="text-purple-400" />,
-    INTERNAL: null,
+    ENTRY_POINT:        <ArrowRight size={11} className="text-green-500" />,
+    TERMINAL_SINK:      <ArrowLeft size={11} className="text-purple-400" />,
+    INTERNAL:           null,
+    SHARED_DEPENDENCY:  null,
   }[node.execution_role];
 
   const parts = node.canonical_path.split("/");

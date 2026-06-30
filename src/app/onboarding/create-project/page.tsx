@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FolderOpen, GitBranch, Upload, ArrowRight } from "lucide-react";
 import { createProjectAction } from "@/actions/project.action";
@@ -10,6 +10,14 @@ import Button from "@/components/Button/Button";
 type UploadMethod = "zip" | "github" | null;
 
 export default function OnboardingCreateProjectPage() {
+  return (
+    <Suspense>
+      <CreateProjectForm />
+    </Suspense>
+  );
+}
+
+function CreateProjectForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const orgId = searchParams.get("orgId") ?? "";

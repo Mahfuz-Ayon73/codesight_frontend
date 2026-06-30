@@ -4,6 +4,20 @@ import type { Node, Edge } from "@xyflow/react";
 import * as d3 from "d3";
 import type { Blueprint, BlueprintCluster, BlueprintNode } from "@/types/project/project.schema";
 
+export const EDGE_TYPE_COLORS = {
+  RENDERS:             "rgba(6,182,212,0.85)",
+  BELONGS_TO_DOMAIN:   "rgba(99,102,241,0.85)",
+  SEMANTIC_SIMILARITY: "rgba(16,185,129,0.85)",
+} as const;
+
+export interface EdgeFilterOptions {
+  showRenders:            boolean;
+  showBelongsToDomain:    boolean;
+  showSemanticSimilarity: boolean;
+  showDeadImports:        boolean;
+  overviewMaxEdges:       number;
+}
+
 export const CLUSTER_COLORS = [
   { bg: "rgba(99,102,241,0.10)",  border: "rgba(99,102,241,0.50)"  },
   { bg: "rgba(16,185,129,0.10)",  border: "rgba(16,185,129,0.50)"  },
@@ -83,6 +97,7 @@ export function layoutClusterPills(
   clusters: BlueprintCluster[],
   index: ClusterIndex,
   colorOffset: number = 0,
+  fileCountOverride?: Map<string, number>,
 ): { nodes: Node[]; edges: Edge[] } {
   if (clusters.length === 0) return { nodes: [], edges: [] };
 
@@ -106,9 +121,9 @@ export function layoutClusterPills(
     const ci    = ((i + colorOffset) % CLUSTER_COLORS.length + CLUSTER_COLORS.length) % CLUSTER_COLORS.length;
     const color = CLUSTER_COLORS[ci];
     const pos   = posOf.get(cluster.id)!;
-    const fileCount = index.descendantCount.get(cluster.id) ?? 0;
+    const fileCount = fileCountOverride?.get(cluster.id) ?? index.descendantCount.get(cluster.id) ?? 0;
     const childCount = (index.childrenOf.get(cluster.id) ?? []).length;
-    const hasChildren = childCount > 0;
+    const hasChildren = childCount > 0 || (fileCountOverride?.has(cluster.id) ?? false);
 
     return {
       id:       cluster.id,

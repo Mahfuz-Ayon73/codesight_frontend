@@ -97,3 +97,29 @@ export interface Blueprint {
   nodes: BlueprintNode[];
   edges: BlueprintEdge[];
 }
+
+// Commit history / diff types
+export type DiffStatus = "added" | "modified" | "deleted" | "moved";
+
+export interface CommitDiff {
+  sha: string;
+  shortSha: string;
+  message: string;
+  author: string;
+  timestamp: string | null;
+  addedFiles: string[];
+  modifiedFiles: string[];
+  deletedFiles: string[];
+  totalChanges: number;
+}
+
+export interface SnapshotSummary {
+  commitSha: string;
+  snapshotId: string;
+}
+
+export interface GraphDelta {
+  added_nodes: string[];
+  removed_nodes: string[];
+  moved_nodes: { file: string; from_cluster: string; to_cluster: string }[];
+}

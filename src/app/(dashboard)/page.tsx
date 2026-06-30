@@ -138,7 +138,7 @@ export default async function WorkspacePage() {
             </div>
 
             {hasAnalysis && blueprint ? (
-              <DashboardGraphPreview blueprint={blueprint} projectId={lastProject.id} />
+              <DashboardGraphPreview blueprint={blueprint} projectId={lastProject.id} orgId={lastProject.organizationId} />
             ) : hasAnalysis && !blueprint ? (
               <div className="flex items-center justify-center h-64 text-sm text-zinc-400">
                 Could not load graph data

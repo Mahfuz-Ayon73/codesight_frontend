@@ -16,13 +16,15 @@ const CodeSightCanvas = dynamic(() => import("@/components/canvas/CodeSightCanva
 export default function DashboardGraphPreview({
   blueprint,
   projectId,
+  orgId,
 }: {
   blueprint: Blueprint;
   projectId: string;
+  orgId?: string;
 }) {
   return (
     <div style={{ height: 420 }}>
-      <CodeSightCanvas blueprint={blueprint} projectId={projectId} />
+      <CodeSightCanvas blueprint={blueprint} projectId={projectId} orgId={orgId} />
     </div>
   );
 }
