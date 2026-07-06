@@ -27,6 +27,19 @@ type Props = {
 
 type ViewState = "ready" | "analyzing" | "done" | "results" | "failed";
 
+type ProgressState = { stage: string | null; message: string | null };
+
+const STAGE_LABELS: Record<string, string> = {
+  queued: "Queued",
+  crawling: "Crawling repository",
+  parsing: "Parsing code & generating embeddings",
+  clustering: "Building dependency graph & clustering",
+  labeling: "Labeling clusters with AI summaries",
+  finalizing: "Finalizing analysis blueprint",
+  cleanup: "Cleaning up temporary files",
+  done: "Done",
+};
+
 function toViewState(status: AnalysisStatus): ViewState {
   if (status === "READY_FOR_ANALYSIS") return "ready";
   if (status === "IN_PROGRESS" || status === "ANALYZING") return "analyzing";
@@ -40,22 +53,28 @@ export default function AnalysisView({ organizationId, projectId, initialStatus 
   const [blueprint, setBlueprint] = useState<Blueprint | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [triggering, setTriggering] = useState(false);
+  const [progress, setProgress] = useState<ProgressState>({ stage: null, message: null });
 
   // Poll status while analyzing
   const pollStatus = useCallback(async () => {
     const res = await fetch(`/api/project/status?organizationId=${organizationId}&projectId=${projectId}`);
     if (!res.ok) return null;
     const data = await res.json();
-    return data.analysisStatus as AnalysisStatus;
+    return {
+      status: data.analysisStatus as AnalysisStatus,
+      stage: (data.analysisStage as string | null) ?? null,
+      message: (data.analysisMessage as string | null) ?? null,
+    };
   }, [organizationId, projectId]);
 
   useEffect(() => {
     if (view !== "analyzing") return;
     const interval = setInterval(async () => {
-      const status = await pollStatus();
-      if (!status) return;
-      if (status === "COMPLETED") { clearInterval(interval); setView("done"); }
-      else if (status === "FAILED") { clearInterval(interval); setView("failed"); }
+      const result = await pollStatus();
+      if (!result) return;
+      setProgress({ stage: result.stage, message: result.message });
+      if (result.status === "COMPLETED") { clearInterval(interval); setView("done"); }
+      else if (result.status === "FAILED") { clearInterval(interval); setView("failed"); }
     }, 3000);
     return () => clearInterval(interval);
   }, [view, pollStatus]);
@@ -63,6 +82,7 @@ export default function AnalysisView({ organizationId, projectId, initialStatus 
   async function handleTriggerAnalysis() {
     setTriggering(true);
     setError(null);
+    setProgress({ stage: null, message: null });
     try {
       const res = await fetch(
         `/api/project/analyze?organizationId=${organizationId}&projectId=${projectId}`,
@@ -119,12 +139,17 @@ export default function AnalysisView({ organizationId, projectId, initialStatus 
 
   // --- Analyzing ---
   if (view === "analyzing") {
+    const stageLabel = progress.stage ? STAGE_LABELS[progress.stage] ?? progress.stage : null;
     return (
       <div className="flex flex-col items-center justify-center rounded-2xl border border-zinc-200 bg-white py-16 text-center px-6 gap-4">
         <div className="w-12 h-12 rounded-full border-4 border-cyan-100 border-t-cyan-500 animate-spin" />
         <div>
-          <p className="text-sm font-semibold text-zinc-800">Analysing your codebase</p>
-          <p className="text-xs text-zinc-400 mt-1">Building dependency graph, clustering modules…</p>
+          <p className="text-sm font-semibold text-zinc-800">
+            {stageLabel ?? "Analysing your codebase"}
+          </p>
+          <p className="text-xs text-zinc-400 mt-1">
+            {progress.message ?? "Building dependency graph, clustering modules…"}
+          </p>
         </div>
         <span className="text-xs font-mono bg-zinc-100 text-zinc-500 px-3 py-1 rounded-full">IN PROGRESS</span>
       </div>

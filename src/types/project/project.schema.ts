@@ -19,6 +19,8 @@ export interface Project {
   sourceType: ProjectSourceType;
   githubUrl?: string;
   analysisStatus: AnalysisStatus;
+  analysisStage?: string | null;
+  analysisMessage?: string | null;
   uploadErrorMessage?: string;
   uploadedAt?: string;
   createdAt?: string;

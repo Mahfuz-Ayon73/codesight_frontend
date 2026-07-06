@@ -95,8 +95,11 @@ function InnerCanvas({
   const [showMergePanel, setShowMergePanel]   = useState(false);
   // Pending merge name prompt (null = hidden, string = name being typed)
   const [pendingMergeName, setPendingMergeName] = useState<string | null>(null);
-  // Collapsible right sidebar — auto-opens when drilling into a merged group
+  // Collapsible right sidebar — auto-opens the first time you drill into a merged
+  // group. Once the user manually toggles it, we stop overriding their choice —
+  // otherwise every re-entry into a merged group snaps it back open.
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const sidebarManuallyToggledRef = useRef(false);
 
   // Merge persistence
   const { merges, addMerge, removeMerge } = useClusterMerges(orgId ?? "", projectId);
@@ -160,8 +163,10 @@ function InnerCanvas({
     return merges;
   }, [merges, currentEntry]);
 
-  // Auto-open sidebar when entering a merged group, close when leaving
+  // Auto-open sidebar when entering a merged group, close when leaving —
+  // but only until the user manually toggles it, so a manual collapse sticks.
   useEffect(() => {
+    if (sidebarManuallyToggledRef.current) return;
     setSidebarOpen(!!currentEntry.isMergedGroup);
   }, [currentEntry.isMergedGroup]);
 
@@ -384,24 +389,25 @@ function InnerCanvas({
 
         {/* Breadcrumb + controls */}
         <Panel position="top-left">
-          <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs flex-wrap"
-            style={{ background: "rgba(8,8,16,0.88)", border: "1px solid rgba(255,255,255,0.08)", backdropFilter: "blur(14px)", color: "rgba(255,255,255,0.55)" }}
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs flex-wrap overflow-hidden"
+            style={{ background: "rgba(8,8,16,0.88)", border: "1px solid rgba(255,255,255,0.08)", backdropFilter: "blur(14px)", color: "rgba(255,255,255,0.55)", maxWidth: "min(56vw, 620px)" }}
           >
             {canGoBack && (
-              <button onClick={goBack} className="flex items-center gap-1 text-indigo-400 hover:text-indigo-300 transition-colors mr-1">
+              <button onClick={goBack} className="flex items-center gap-1 text-indigo-400 hover:text-indigo-300 transition-colors mr-1 shrink-0">
                 <ArrowLeft size={11} />
                 <span className="font-medium">Back</span>
               </button>
             )}
 
             {navStack.map((entry, idx) => (
-              <span key={idx} className="flex items-center gap-1">
-                {idx > 0 && <ChevronRight size={9} className="text-white/20" />}
+              <span key={idx} className="flex items-center gap-1 min-w-0">
+                {idx > 0 && <ChevronRight size={9} className="text-white/20 shrink-0" />}
                 <button
                   onClick={() => goToLevel(idx)}
-                  className={idx === navStack.length - 1 && viewMode === "cluster-list"
+                  title={entry.label}
+                  className={`truncate max-w-[160px] ${idx === navStack.length - 1 && viewMode === "cluster-list"
                     ? "text-white/80 font-semibold"
-                    : "text-white/40 hover:text-white/70 transition-colors"}
+                    : "text-white/40 hover:text-white/70 transition-colors"}`}
                 >
                   {entry.label}
                 </button>
@@ -584,7 +590,7 @@ function InnerCanvas({
           {/* Toggle tab — always visible */}
           <div className="pointer-events-auto flex items-center">
             <button
-              onClick={() => setSidebarOpen((v) => !v)}
+              onClick={() => { sidebarManuallyToggledRef.current = true; setSidebarOpen((v) => !v); }}
               title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
               className="flex items-center justify-center w-5 h-16 rounded-l-lg transition-colors"
               style={{

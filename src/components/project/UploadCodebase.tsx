@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Upload, GitBranch, FolderOpen, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import Button from "@/components/Button/Button";
@@ -25,11 +25,62 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
   const [githubToken, setGithubToken] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [selectedZip, setSelectedZip] = useState<File | null>(null);
-  const [status, setStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
+  const [status,       setStatus]       = useState<"idle" | "uploading" | "success" | "error">("idle");
+  const [errorMsg,     setErrorMsg]     = useState<string | null>(null);
+  const [progress,     setProgress]     = useState(0);
+  const [cloneStage,   setCloneStage]   = useState("");
+  const [clonePercent, setClonePercent] = useState(0);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const base = `${API_BASE}/api/v1/organizations/${organizationId}/projects/${projectId}`;
+
+  const STAGE_LABELS: Record<string, string> = {
+    idle:         "Preparing…",
+    preparing:    "Preparing directory…",
+    connecting:   "Connecting to GitHub…",
+    counting:     "Counting objects…",
+    compressing:  "Compressing objects…",
+    downloading:  "Downloading code…",
+    resolving:    "Resolving deltas…",
+    finalizing:   "Finalizing checkout…",
+    cloning:      "Cloning repository…",
+    done:         "Clone complete",
+    failed:       "Clone failed",
+  };
+
+  // Poll clone-status while a GitHub upload is in-flight
+  useEffect(() => {
+    if (status === "uploading" && method === "github") {
+      pollRef.current = setInterval(async () => {
+        try {
+          const res = await fetch(
+            `/api/upload/clone-status?organizationId=${organizationId}&projectId=${projectId}`
+          );
+          if (res.ok) {
+            const data = await res.json();
+            const stage: string = data.stage ?? "";
+            const percent: number = data.percent ?? 0;
+            setCloneStage(stage);
+            setClonePercent(percent);
+
+            // Terminal states end the polling loop and either mark success or error.
+            if (stage === "done") {
+              if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+              setStatus("success");
+              setTimeout(() => router.refresh(), 1200);
+            } else if (stage === "failed") {
+              if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+              setErrorMsg(data.detail || "GitHub clone failed");
+              setStatus("error");
+            }
+          }
+        } catch { /* ignore poll errors */ }
+      }, 1200);
+    } else {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    }
+    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+  }, [status, method, organizationId, projectId, router]);
 
   function getToken() {
     return document.cookie
@@ -113,6 +164,8 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
 
       } else {
         if (!githubUrl.trim()) { setErrorMsg("Please enter a GitHub URL."); setStatus("error"); return; }
+        setCloneStage("connecting");
+        setClonePercent(0);
         const res = await fetch(
           `/api/upload/github?organizationId=${organizationId}&projectId=${projectId}`,
           {
@@ -128,8 +181,16 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
           const body = await res.json().catch(() => null);
           throw new Error(body?.message ?? "GitHub upload failed");
         }
+        // 202 Accepted — the clone is now running on the server. Keep status="uploading";
+        // the useEffect poller below will detect "done" or "failed" and flip status to
+        // "success" / "error". Do NOT set status="success" here, otherwise the poller
+        // tears down and the user sees "Upload successful" while the clone is still
+        // running on the backend.
+        return;
       }
 
+      // Reached only for the synchronous methods (zip / folder). GitHub returns above
+      // so the progress poller can take over.
       setStatus("success");
       setTimeout(() => router.refresh(), 1200);
     } catch (err) {
@@ -282,7 +343,7 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
         </div>
       )}
 
-      {/* Progress bar */}
+      {/* ZIP progress bar */}
       {status === "uploading" && method === "zip" && (
         <div className="flex flex-col gap-1.5">
           <div className="flex justify-between text-xs text-zinc-400">
@@ -290,10 +351,58 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
             <span>{progress}%</span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-zinc-100 overflow-hidden">
-            <div
-              className="h-full bg-cyan-500 transition-all duration-300"
-              style={{ width: `${progress}%` }}
-            />
+            <div className="h-full bg-cyan-500 transition-all duration-300" style={{ width: `${progress}%` }} />
+          </div>
+        </div>
+      )}
+
+      {/* GitHub clone progress */}
+      {status === "uploading" && method === "github" && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="flex items-center gap-1.5 text-zinc-500 font-medium">
+              <Loader2 size={11} className="animate-spin text-cyan-500" />
+              {STAGE_LABELS[cloneStage] ?? "Cloning repository…"}
+            </span>
+            {clonePercent > 0 && (
+              <span className="text-zinc-400 tabular-nums">{clonePercent}%</span>
+            )}
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-zinc-100 overflow-hidden">
+            {clonePercent > 0 ? (
+              <div
+                className="h-full bg-cyan-500 transition-all duration-500"
+                style={{ width: `${clonePercent}%` }}
+              />
+            ) : (
+              /* Indeterminate bar for stages without a known total */
+              <div className="h-full w-1/3 bg-cyan-500 rounded-full animate-[slide_1.4s_ease-in-out_infinite]"
+                style={{ animation: "slide 1.4s ease-in-out infinite" }}
+              />
+            )}
+          </div>
+          <style>{`@keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(400%)}}`}</style>
+          {/* Stage pills */}
+          <div className="flex gap-1.5 flex-wrap">
+            {["connecting","downloading","resolving","finalizing"].map((s) => {
+              const stages = ["connecting","counting","compressing","downloading","resolving","finalizing","done"];
+              const current = stages.indexOf(cloneStage);
+              const idx     = stages.indexOf(s);
+              const done    = current > idx;
+              const active  = current === idx || (s === "connecting" && current < 1);
+              return (
+                <span
+                  key={s}
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition-all ${
+                    done   ? "bg-cyan-100 text-cyan-600" :
+                    active ? "bg-cyan-500 text-white" :
+                             "bg-zinc-100 text-zinc-400"
+                  }`}
+                >
+                  {STAGE_LABELS[s]?.replace("…","") ?? s}
+                </span>
+              );
+            })}
           </div>
         </div>
       )}
@@ -314,7 +423,11 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
         className="self-start flex items-center gap-2"
       >
         {status === "uploading"
-          ? <><Loader2 size={14} className="animate-spin" /> {method === "zip" ? `${progress}%` : "Uploading…"}</>
+          ? <><Loader2 size={14} className="animate-spin" />
+              {method === "zip"    ? `${progress}%` :
+               method === "github" ? (STAGE_LABELS[cloneStage] ?? "Cloning…") :
+               "Uploading…"}
+            </>
           : "Upload"
         }
       </Button>
