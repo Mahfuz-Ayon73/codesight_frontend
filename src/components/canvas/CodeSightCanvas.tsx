@@ -9,14 +9,16 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import type { Blueprint } from "@/types/project/project.schema";
+import type { Blueprint, BlueprintNode } from "@/types/project/project.schema";
 import {
   buildClusterIndex, layoutClusterPills, layoutFileDetail, layoutFileFlow,
-  CLUSTER_COLORS, clamp,
+  CLUSTER_COLORS, clamp, EDGE_TYPE_COLORS, DEFAULT_EDGE_FILTERS, type EdgeFilterOptions,
 } from "./useD3Layout";
 import { computeClusterRelationships } from "./useClusterRelationships";
 import ClusterGroupNode from "./ClusterGroupNode";
 import FileCardNode from "./FileCardNode";
+import EdgeFilterPanel from "./EdgeFilterPanel";
+import CodeViewerPanel from "./CodeViewerPanel";
 import {
   useClusterMerges, applyMerges, suggestMerges, type ClusterMerge,
 } from "./useClusterMerges";
@@ -85,6 +87,8 @@ function InnerCanvas({
   const [activeLeaf, setActiveLeaf]   = useState<string | null>(null);
   const [flowActive, setFlowActive]   = useState(false);
   const [connectivity, setConnectivity] = useState<ReturnType<typeof computeClusterRelationships> | null>(null);
+  // File node clicked in structure/flow view — opens the code preview panel.
+  const [selectedFileNode, setSelectedFileNode] = useState<BlueprintNode | null>(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -100,6 +104,9 @@ function InnerCanvas({
   // otherwise every re-entry into a merged group snaps it back open.
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const sidebarManuallyToggledRef = useRef(false);
+  // Edge type/count filters — keeps large, densely-connected codebases from
+  // rendering hundreds of macro edges at once.
+  const [edgeFilters, setEdgeFilters] = useState<EdgeFilterOptions>(DEFAULT_EDGE_FILTERS);
 
   // Merge persistence
   const { merges, addMerge, removeMerge } = useClusterMerges(orgId ?? "", projectId);
@@ -123,7 +130,11 @@ function InnerCanvas({
     return ((idx < 0 ? 0 : idx) % CLUSTER_COLORS.length);
   }, [blueprint, currentParentId]);
 
-  // Inter-cluster edges at the current level
+  // Inter-cluster edges at the current level. Filters out noisy edge types/dead
+  // imports up front (per edgeFilters), and tracks a per-pair dominant type so
+  // macro edges can be colored by relationship kind instead of a flat color.
+  // Left uncapped — suggestMerges/applyMerges need the full picture; the display
+  // cap is applied later (see displayEdges) on the post-merge edge set.
   const levelEdges = useMemo(() => {
     const clusterSet = new Set(visibleClusters.map((c) => c.id));
     const nodeToVisible = new Map<string, string>();
@@ -133,26 +144,46 @@ function InnerCanvas({
     }
     for (const c of visibleClusters) assign(c.id, c.id);
 
+    const typeVisible = (type: string) => {
+      if (type === "RENDERS") return edgeFilters.showRenders;
+      if (type === "BELONGS_TO_DOMAIN") return edgeFilters.showBelongsToDomain;
+      if (type === "SEMANTIC_SIMILARITY") return edgeFilters.showSemanticSimilarity;
+      return true;
+    };
+
     const interPairs = new Map<string, number>();
+    const byType = new Map<string, Map<string, number>>();
     for (const e of blueprint.edges) {
+      if (e.is_dead_import && !edgeFilters.showDeadImports) continue;
+      if (!typeVisible(e.type)) continue;
       const sc = nodeToVisible.get(e.source);
       const tc = nodeToVisible.get(e.target);
       if (sc && tc && sc !== tc && clusterSet.has(sc) && clusterSet.has(tc)) {
         const key = `${sc}||${tc}`;
         interPairs.set(key, (interPairs.get(key) ?? 0) + e.weight);
+        const types = byType.get(key) ?? new Map<string, number>();
+        types.set(e.type, (types.get(e.type) ?? 0) + e.weight);
+        byType.set(key, types);
       }
     }
     const result: Edge[] = [];
     for (const [key, weight] of interPairs) {
       const [sc, tc] = key.split("||");
+      const types = byType.get(key);
+      let dominantType = "BELONGS_TO_DOMAIN";
+      let bestWeight = -Infinity;
+      for (const [type, w] of types ?? []) {
+        if (w > bestWeight) { bestWeight = w; dominantType = type; }
+      }
+      const color = EDGE_TYPE_COLORS[dominantType as keyof typeof EDGE_TYPE_COLORS] ?? "rgba(99,102,241,0.45)";
       result.push({
         id: `macro-${sc}-${tc}`, source: sc, target: tc, animated: false,
-        style: { stroke: "rgba(99,102,241,0.45)", strokeWidth: clamp(weight * 0.15, 1.5, 6) },
-        data: { weight, isMacro: true },
+        style: { stroke: color, strokeWidth: clamp(weight * 0.15, 1.5, 6) },
+        data: { weight, isMacro: true, dominantType },
       });
     }
     return result;
-  }, [visibleClusters, index, blueprint.edges]);
+  }, [visibleClusters, index, blueprint.edges, edgeFilters]);
 
   // When drilled inside a merged group, suppress that group's own merge so source clusters show individually
   const activeMerges = useMemo(() => {
@@ -176,6 +207,22 @@ function InnerCanvas({
     [visibleClusters, levelEdges, activeMerges, index]
   );
 
+  // Cap the final, post-merge edge set actually rendered — this is what keeps
+  // large, densely-connected codebases from lagging. Applied after merges so
+  // consolidating clusters (existing feature) naturally reduces what gets cut.
+  const { displayEdges, hiddenEdgeCount } = useMemo(() => {
+    if (viewMode !== "cluster-list" || virtualEdges.length <= edgeFilters.overviewMaxEdges) {
+      return { displayEdges: virtualEdges, hiddenEdgeCount: 0 };
+    }
+    const sorted = [...virtualEdges].sort(
+      (a, b) => ((b.data?.weight as number) ?? 0) - ((a.data?.weight as number) ?? 0)
+    );
+    return {
+      displayEdges: sorted.slice(0, edgeFilters.overviewMaxEdges),
+      hiddenEdgeCount: sorted.length - edgeFilters.overviewMaxEdges,
+    };
+  }, [viewMode, virtualEdges, edgeFilters.overviewMaxEdges]);
+
   // Smart merge suggestions (computed only when panel is open)
   const suggestions = useMemo(() => {
     if (!showMergePanel) return [];
@@ -187,69 +234,88 @@ function InnerCanvas({
   // ---------------------------------------------------------------------------
   const mergeById = useMemo(() => new Map(activeMerges.map((m) => [m.id, m])), [activeMerges]);
 
+  // Cluster-list NODE positions — deliberately does not depend on edges, so
+  // toggling the Edge Filters panel doesn't retrigger the d3 force simulation
+  // or re-fit the view (positions haven't changed, only which edges are drawn).
   useEffect(() => {
-    if (viewMode === "cluster-list") {
-      const { nodes: pillNodes } = layoutClusterPills(virtualClusters, index, colorOffset, fileCountOverride);
+    if (viewMode !== "cluster-list") return;
+    const { nodes: pillNodes } = layoutClusterPills(virtualClusters, index, colorOffset, fileCountOverride);
 
-      // Enrich nodes with merge/selection data
-      const inMergedGroup = !!currentEntry.isMergedGroup;
-      const enriched = pillNodes.map((n) => {
-        const cid = n.data.clusterId as string;
-        const merge = mergeById.get(cid);
-        return {
-          ...n,
-          data: {
-            ...n.data,
-            isMultiSelected: selectedClusterIds.has(cid),
-            isMerged:    !!merge,
-            mergedCount: merge?.sourceIds.length,
-            onUnmerge:   merge ? removeMerge : undefined,
-            hideName:    inMergedGroup,
-          },
-        };
-      });
+    // Enrich nodes with merge/selection data
+    const inMergedGroup = !!currentEntry.isMergedGroup;
+    const enriched = pillNodes.map((n) => {
+      const cid = n.data.clusterId as string;
+      const merge = mergeById.get(cid);
+      return {
+        ...n,
+        data: {
+          ...n.data,
+          isMultiSelected: selectedClusterIds.has(cid),
+          isMerged:    !!merge,
+          mergedCount: merge?.sourceIds.length,
+          onUnmerge:   merge ? removeMerge : undefined,
+          hideName:    inMergedGroup,
+        },
+      };
+    });
 
-      setNodes(enriched);
-      setEdges(virtualEdges);
-      setConnectivity(null);
-      setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 60);
-    } else if (viewMode === "file-detail" && activeLeaf) {
-      const cluster = index.clusterById.get(activeLeaf);
-      if (!cluster) return;
-      const members = index.nodesOf.get(activeLeaf) ?? [];
-      const rawCi = blueprint.clusters.findIndex((c) => c.id === activeLeaf);
-      const ci = ((rawCi < 0 ? 0 : rawCi) % CLUSTER_COLORS.length + CLUSTER_COLORS.length) % CLUSTER_COLORS.length;
-      const edgeColor = CLUSTER_COLORS[ci]?.border ?? "rgba(99,102,241,0.50)";
-
-      if (flowActive) {
-        const { nodes: fn, edges: fe } = layoutFileFlow(cluster, members, blueprint.edges, ci);
-        const rel = computeClusterRelationships(activeLeaf, blueprint, edgeColor, true);
-        setConnectivity(rel);
-        setNodes(fn.map((n) => {
-          const conn = rel.connectivity.get(n.id);
-          return !conn || n.type !== "fileCard" ? n : { ...n, data: { ...n.data, isFlowOrphan: conn.isFlowOrphan, edgeCount: conn.edgeCount, flowActive: true } };
-        }));
-        setEdges(fe);
-      } else {
-        const { nodes: dn, edges: de } = layoutFileDetail(cluster, members, blueprint.edges, ci);
-        const rel = computeClusterRelationships(activeLeaf, blueprint, edgeColor, false);
-        setConnectivity(rel);
-        const severedIds = new Set(overridesRef.current.severedEdges.map((s) => s.edgeId));
-        setNodes(dn.map((n) => {
-          const conn = rel.connectivity.get(n.id);
-          return !conn ? n : { ...n, data: { ...n.data, isOrphan: conn.isOrphan, edgeCount: conn.edgeCount, flowActive: false } };
-        }));
-        setEdges(de.filter((e) => !severedIds.has(e.id)));
-      }
-      setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 60);
-    }
+    setNodes(enriched);
+    setConnectivity(null);
+    setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 60);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, activeLeaf, flowActive, virtualClusters, virtualEdges, fileCountOverride, mergeById, selectedClusterIds, removeMerge, index, blueprint, colorOffset, fitView, setNodes, setEdges]);
+  }, [viewMode, virtualClusters, index, colorOffset, fileCountOverride, mergeById, selectedClusterIds, removeMerge, currentEntry.isMergedGroup, fitView, setNodes]);
+
+  // Cluster-list EDGES — split out so edge-filter/cap changes are just a cheap
+  // setEdges, not a full re-layout.
+  useEffect(() => {
+    if (viewMode !== "cluster-list") return;
+    setEdges(displayEdges);
+  }, [viewMode, displayEdges, setEdges]);
+
+  // File-detail (structure/flow) — unchanged from before, just no longer shares
+  // an effect with the cluster-list branch.
+  useEffect(() => {
+    if (viewMode !== "file-detail" || !activeLeaf) return;
+    setSelectedFileNode(null);
+    const cluster = index.clusterById.get(activeLeaf);
+    if (!cluster) return;
+    const members = index.nodesOf.get(activeLeaf) ?? [];
+    const rawCi = blueprint.clusters.findIndex((c) => c.id === activeLeaf);
+    const ci = ((rawCi < 0 ? 0 : rawCi) % CLUSTER_COLORS.length + CLUSTER_COLORS.length) % CLUSTER_COLORS.length;
+    const edgeColor = CLUSTER_COLORS[ci]?.border ?? "rgba(99,102,241,0.50)";
+
+    if (flowActive) {
+      const { nodes: fn, edges: fe } = layoutFileFlow(cluster, members, blueprint.edges, ci);
+      const rel = computeClusterRelationships(activeLeaf, blueprint, edgeColor, true);
+      setConnectivity(rel);
+      setNodes(fn.map((n) => {
+        const conn = rel.connectivity.get(n.id);
+        return !conn || n.type !== "fileCard" ? n : { ...n, data: { ...n.data, isFlowOrphan: conn.isFlowOrphan, edgeCount: conn.edgeCount, flowActive: true } };
+      }));
+      setEdges(fe);
+    } else {
+      const { nodes: dn, edges: de } = layoutFileDetail(cluster, members, blueprint.edges, ci);
+      const rel = computeClusterRelationships(activeLeaf, blueprint, edgeColor, false);
+      setConnectivity(rel);
+      const severedIds = new Set(overridesRef.current.severedEdges.map((s) => s.edgeId));
+      setNodes(dn.map((n) => {
+        const conn = rel.connectivity.get(n.id);
+        return !conn ? n : { ...n, data: { ...n.data, isOrphan: conn.isOrphan, edgeCount: conn.edgeCount, flowActive: false } };
+      }));
+      setEdges(de.filter((e) => !severedIds.has(e.id)));
+    }
+    setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 60);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, activeLeaf, flowActive, index, blueprint, colorOffset, fitView, setNodes, setEdges]);
 
   // ---------------------------------------------------------------------------
   // Click handler
   // ---------------------------------------------------------------------------
   const onNodeClick: NodeMouseHandler = useCallback((event, node) => {
+    if (node.type === "fileCard") {
+      setSelectedFileNode(node.data as unknown as BlueprintNode);
+      return;
+    }
     if (node.type !== "clusterGroup") return;
     const clusterId = node.data.clusterId as string;
 
@@ -303,6 +369,7 @@ function InnerCanvas({
     setConnectivity(null);
     setSelectedClusterIds(new Set());
     setShowMergePanel(false);
+    setSelectedFileNode(null);
   }, []);
 
   const goBack = useCallback(() => {
@@ -311,6 +378,7 @@ function InnerCanvas({
       setActiveLeaf(null);
       setFlowActive(false);
       setConnectivity(null);
+      setSelectedFileNode(null);
     } else if (navStack.length > 1) {
       goToLevel(navStack.length - 2);
     }
@@ -582,6 +650,16 @@ function InnerCanvas({
             </div>
           </div>
         </Panel>
+
+        {/* Edge type/count filters — keeps dense codebases from lagging under too many edges */}
+        <Panel position="bottom-right">
+          <EdgeFilterPanel
+            filters={edgeFilters}
+            onChange={setEdgeFilters}
+            showOverviewControls={viewMode === "cluster-list"}
+            hiddenCount={hiddenEdgeCount}
+          />
+        </Panel>
       </ReactFlow>
 
       {/* ── Collapsible right sidebar (merged-group drill-in view) ── */}
@@ -679,6 +757,13 @@ function InnerCanvas({
           )}
         </div>
       )}
+
+      <CodeViewerPanel
+        node={selectedFileNode}
+        organizationId={orgId}
+        projectId={projectId}
+        onClose={() => setSelectedFileNode(null)}
+      />
     </div>
   );
 }

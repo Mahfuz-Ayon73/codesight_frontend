@@ -8,6 +8,8 @@ interface Props {
   filters:              EdgeFilterOptions;
   onChange:             (f: EdgeFilterOptions) => void;
   showOverviewControls: boolean;
+  /** Count of connections currently hidden by the overview cap, if any. */
+  hiddenCount?:         number;
 }
 
 const TYPE_ROWS: Array<{
@@ -20,7 +22,7 @@ const TYPE_ROWS: Array<{
   { key: "showSemanticSimilarity", label: "SIMILARITY", color: EDGE_TYPE_COLORS.SEMANTIC_SIMILARITY },
 ];
 
-export default function EdgeFilterPanel({ filters, onChange, showOverviewControls }: Props) {
+export default function EdgeFilterPanel({ filters, onChange, showOverviewControls, hiddenCount = 0 }: Props) {
   const [open, setOpen] = useState(false);
 
   const set = (key: keyof EdgeFilterOptions, value: boolean | number) =>
@@ -127,6 +129,17 @@ export default function EdgeFilterPanel({ filters, onChange, showOverviewControl
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* Hidden-by-cap hint — connections are summarized, not dropped */}
+      {hiddenCount > 0 && (
+        <div
+          className="px-2.5 py-1 rounded-lg text-[9px] font-mono"
+          style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.30)", color: "rgba(252,211,77,0.9)" }}
+          title="Raise Max edges or merge clusters to reveal more connections"
+        >
+          {hiddenCount} connection{hiddenCount !== 1 ? "s" : ""} hidden
         </div>
       )}
 

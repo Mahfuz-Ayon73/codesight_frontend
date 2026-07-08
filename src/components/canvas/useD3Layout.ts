@@ -18,6 +18,14 @@ export interface EdgeFilterOptions {
   overviewMaxEdges:       number;
 }
 
+export const DEFAULT_EDGE_FILTERS: EdgeFilterOptions = {
+  showRenders:            true,
+  showBelongsToDomain:    true,
+  showSemanticSimilarity: false,
+  showDeadImports:        false,
+  overviewMaxEdges:       40,
+};
+
 export const CLUSTER_COLORS = [
   { bg: "rgba(99,102,241,0.10)",  border: "rgba(99,102,241,0.50)"  },
   { bg: "rgba(16,185,129,0.10)",  border: "rgba(16,185,129,0.50)"  },
