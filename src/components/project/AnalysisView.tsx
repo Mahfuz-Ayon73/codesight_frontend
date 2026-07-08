@@ -261,7 +261,7 @@ function BlueprintResults({ blueprint, projectId, organizationId }: { blueprint:
       {viewMode === "canvas" && (
         <div
           className="-mx-6 w-[calc(100%+3rem)]"
-          style={{ height: "calc(100vh - 200px)", minHeight: 560 }}
+          style={{ height: "calc(100vh - 160px)", minHeight: 640 }}
         >
           <CodeSightCanvas blueprint={blueprint} projectId={projectId} orgId={organizationId} />
         </div>

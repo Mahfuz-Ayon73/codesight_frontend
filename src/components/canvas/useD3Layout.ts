@@ -362,7 +362,12 @@ export function layoutFileFlow(
       labelBgStyle: { fill: "rgba(8,20,30,0.95)", stroke: "rgba(6,182,212,0.4)", strokeWidth: 1 },
       labelBgPadding: [5, 3] as [number, number],
       labelBgBorderRadius: 4,
-      data: { weight: e.weight },
+      data: {
+        weight: e.weight,
+        source: e.source, target: e.target, type: e.type,
+        binding: e.binding, calledNames: e.called_names,
+        sourceLine: e.source_line, targetLine: e.target_line,
+      },
     };
   });
 

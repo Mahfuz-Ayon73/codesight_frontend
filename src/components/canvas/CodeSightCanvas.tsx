@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow, Background, Controls,
   useNodesState, useEdgesState, addEdge,
-  type Node, type Edge, type OnEdgesDelete, type NodeMouseHandler,
+  type Node, type Edge, type OnEdgesDelete, type NodeMouseHandler, type EdgeMouseHandler,
   ReactFlowProvider, useReactFlow, Panel, BackgroundVariant,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -19,6 +19,7 @@ import ClusterGroupNode from "./ClusterGroupNode";
 import FileCardNode from "./FileCardNode";
 import EdgeFilterPanel from "./EdgeFilterPanel";
 import CodeViewerPanel from "./CodeViewerPanel";
+import EdgeDiffPanel, { type EdgeDiffSelection } from "./EdgeDiffPanel";
 import {
   useClusterMerges, applyMerges, suggestMerges, type ClusterMerge,
 } from "./useClusterMerges";
@@ -89,6 +90,17 @@ function InnerCanvas({
   const [connectivity, setConnectivity] = useState<ReturnType<typeof computeClusterRelationships> | null>(null);
   // File node clicked in structure/flow view — opens the code preview panel.
   const [selectedFileNode, setSelectedFileNode] = useState<BlueprintNode | null>(null);
+  // Edge relation label clicked in flow view — opens the side-by-side diff panel.
+  const [selectedEdgeInfo, setSelectedEdgeInfo] = useState<EdgeDiffSelection | null>(null);
+
+  // Fast id → node lookup for edge-click resolution.
+  const nodeById = useMemo(() => new Map(blueprint.nodes.map((n) => [n.id, n])), [blueprint.nodes]);
+
+  // Re-fit the graph when the bottom diff panel opens/closes and resizes the canvas area.
+  useEffect(() => {
+    const id = setTimeout(() => fitView({ padding: 0.12, duration: 300 }), 320);
+    return () => clearTimeout(id);
+  }, [selectedEdgeInfo, fitView]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -277,6 +289,7 @@ function InnerCanvas({
   useEffect(() => {
     if (viewMode !== "file-detail" || !activeLeaf) return;
     setSelectedFileNode(null);
+    setSelectedEdgeInfo(null);
     const cluster = index.clusterById.get(activeLeaf);
     if (!cluster) return;
     const members = index.nodesOf.get(activeLeaf) ?? [];
@@ -358,6 +371,24 @@ function InnerCanvas({
     }
   }, [viewMode, mergeById]);
 
+  const onEdgeClick: EdgeMouseHandler = useCallback((_event, edge) => {
+    if (!flowActive) return;
+    const d = edge.data as Record<string, unknown> | undefined;
+    if (!d) return;
+    const sourceNode = nodeById.get(d.source as string);
+    const targetNode = nodeById.get(d.target as string);
+    if (!sourceNode || !targetNode) return;
+    setSelectedFileNode(null);
+    setSelectedEdgeInfo({
+      sourceNode, targetNode,
+      sourceLine: (d.sourceLine as number | null | undefined) ?? null,
+      targetLine: (d.targetLine as number | null | undefined) ?? null,
+      edgeType: (d.type as string) ?? "BELONGS_TO_DOMAIN",
+      binding: d.binding as string | undefined,
+      calledNames: d.calledNames as string[] | undefined,
+    });
+  }, [flowActive, nodeById]);
+
   // ---------------------------------------------------------------------------
   // Navigation
   // ---------------------------------------------------------------------------
@@ -370,6 +401,7 @@ function InnerCanvas({
     setSelectedClusterIds(new Set());
     setShowMergePanel(false);
     setSelectedFileNode(null);
+    setSelectedEdgeInfo(null);
   }, []);
 
   const goBack = useCallback(() => {
@@ -379,6 +411,7 @@ function InnerCanvas({
       setFlowActive(false);
       setConnectivity(null);
       setSelectedFileNode(null);
+      setSelectedEdgeInfo(null);
     } else if (navStack.length > 1) {
       goToLevel(navStack.length - 2);
     }
@@ -435,7 +468,8 @@ function InnerCanvas({
   const mergesActive   = !!orgId;
 
   return (
-    <div className="relative w-full h-full rounded-2xl overflow-hidden" style={{ background: "#080810" }}>
+    <div className="relative w-full h-full rounded-2xl overflow-hidden flex flex-col" style={{ background: "#080810" }}>
+      <div className="relative flex-1 min-h-0">
       <ReactFlow
         nodes={nodes} edges={edges}
         nodeTypes={NODE_TYPES}
@@ -443,6 +477,7 @@ function InnerCanvas({
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
+        onEdgeClick={onEdgeClick}
         onEdgesDelete={onEdgesDelete}
         deleteKeyCode="Delete"
         fitView minZoom={0.03} maxZoom={2.5}
@@ -763,6 +798,14 @@ function InnerCanvas({
         organizationId={orgId}
         projectId={projectId}
         onClose={() => setSelectedFileNode(null)}
+      />
+      </div>
+
+      <EdgeDiffPanel
+        selection={selectedEdgeInfo}
+        organizationId={orgId}
+        projectId={projectId}
+        onClose={() => setSelectedEdgeInfo(null)}
       />
     </div>
   );

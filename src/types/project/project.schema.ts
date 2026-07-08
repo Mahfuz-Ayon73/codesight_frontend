@@ -73,6 +73,8 @@ export interface BlueprintEdge {
   called_names?: string[];
   is_dead_import?: boolean;
   is_synthetic?: boolean;
+  source_line?: number | null;
+  target_line?: number | null;
 }
 
 export interface BlueprintCluster {
