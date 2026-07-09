@@ -19,7 +19,7 @@ import ClusterGroupNode from "./ClusterGroupNode";
 import FileCardNode from "./FileCardNode";
 import EdgeFilterPanel from "./EdgeFilterPanel";
 import CodeViewerPanel from "./CodeViewerPanel";
-import EdgeDiffPanel, { type EdgeDiffSelection } from "./EdgeDiffPanel";
+import { type EdgeDiffSelection } from "./EdgeDiffPanel";
 import {
   useClusterMerges, applyMerges, suggestMerges, type ClusterMerge,
 } from "./useClusterMerges";
@@ -66,11 +66,12 @@ interface NavEntry {
 // Inner canvas
 // ---------------------------------------------------------------------------
 function InnerCanvas({
-  blueprint, projectId, orgId,
+  blueprint, projectId, orgId, onEdgeSelect,
 }: {
   blueprint: Blueprint;
   projectId: string;
   orgId?: string;
+  onEdgeSelect?: (selection: EdgeDiffSelection | null) => void;
 }) {
   const { fitView } = useReactFlow();
   const overridesRef = useRef<UserOverrides>(loadOverrides(projectId));
@@ -90,17 +91,9 @@ function InnerCanvas({
   const [connectivity, setConnectivity] = useState<ReturnType<typeof computeClusterRelationships> | null>(null);
   // File node clicked in structure/flow view — opens the code preview panel.
   const [selectedFileNode, setSelectedFileNode] = useState<BlueprintNode | null>(null);
-  // Edge relation label clicked in flow view — opens the side-by-side diff panel.
-  const [selectedEdgeInfo, setSelectedEdgeInfo] = useState<EdgeDiffSelection | null>(null);
 
   // Fast id → node lookup for edge-click resolution.
   const nodeById = useMemo(() => new Map(blueprint.nodes.map((n) => [n.id, n])), [blueprint.nodes]);
-
-  // Re-fit the graph when the bottom diff panel opens/closes and resizes the canvas area.
-  useEffect(() => {
-    const id = setTimeout(() => fitView({ padding: 0.12, duration: 300 }), 320);
-    return () => clearTimeout(id);
-  }, [selectedEdgeInfo, fitView]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -289,7 +282,7 @@ function InnerCanvas({
   useEffect(() => {
     if (viewMode !== "file-detail" || !activeLeaf) return;
     setSelectedFileNode(null);
-    setSelectedEdgeInfo(null);
+    onEdgeSelect?.(null);
     const cluster = index.clusterById.get(activeLeaf);
     if (!cluster) return;
     const members = index.nodesOf.get(activeLeaf) ?? [];
@@ -319,7 +312,7 @@ function InnerCanvas({
     }
     setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 60);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, activeLeaf, flowActive, index, blueprint, colorOffset, fitView, setNodes, setEdges]);
+  }, [viewMode, activeLeaf, flowActive, index, blueprint, colorOffset, fitView, setNodes, setEdges, onEdgeSelect]);
 
   // ---------------------------------------------------------------------------
   // Click handler
@@ -379,7 +372,7 @@ function InnerCanvas({
     const targetNode = nodeById.get(d.target as string);
     if (!sourceNode || !targetNode) return;
     setSelectedFileNode(null);
-    setSelectedEdgeInfo({
+    onEdgeSelect?.({
       sourceNode, targetNode,
       sourceLine: (d.sourceLine as number | null | undefined) ?? null,
       targetLine: (d.targetLine as number | null | undefined) ?? null,
@@ -387,7 +380,7 @@ function InnerCanvas({
       binding: d.binding as string | undefined,
       calledNames: d.calledNames as string[] | undefined,
     });
-  }, [flowActive, nodeById]);
+  }, [flowActive, nodeById, onEdgeSelect]);
 
   // ---------------------------------------------------------------------------
   // Navigation
@@ -401,8 +394,8 @@ function InnerCanvas({
     setSelectedClusterIds(new Set());
     setShowMergePanel(false);
     setSelectedFileNode(null);
-    setSelectedEdgeInfo(null);
-  }, []);
+    onEdgeSelect?.(null);
+  }, [onEdgeSelect]);
 
   const goBack = useCallback(() => {
     if (viewMode === "file-detail") {
@@ -411,11 +404,11 @@ function InnerCanvas({
       setFlowActive(false);
       setConnectivity(null);
       setSelectedFileNode(null);
-      setSelectedEdgeInfo(null);
+      onEdgeSelect?.(null);
     } else if (navStack.length > 1) {
       goToLevel(navStack.length - 2);
     }
-  }, [viewMode, navStack, goToLevel]);
+  }, [viewMode, navStack, goToLevel, onEdgeSelect]);
 
   // ---------------------------------------------------------------------------
   // Merge actions
@@ -800,13 +793,6 @@ function InnerCanvas({
         onClose={() => setSelectedFileNode(null)}
       />
       </div>
-
-      <EdgeDiffPanel
-        selection={selectedEdgeInfo}
-        organizationId={orgId}
-        projectId={projectId}
-        onClose={() => setSelectedEdgeInfo(null)}
-      />
     </div>
   );
 }
@@ -815,11 +801,12 @@ function InnerCanvas({
 // Public export
 // ---------------------------------------------------------------------------
 export default function CodeSightCanvas({
-  blueprint, projectId, orgId,
+  blueprint, projectId, orgId, onEdgeSelect,
 }: {
   blueprint: Blueprint;
   projectId: string;
   orgId?: string;
+  onEdgeSelect?: (selection: EdgeDiffSelection | null) => void;
 }) {
   const [ready, setReady] = useState(false);
 
@@ -841,7 +828,10 @@ export default function CodeSightCanvas({
 
   return (
     <ReactFlowProvider>
-      <InnerCanvas blueprint={blueprint} projectId={projectId} orgId={orgId} />
+      <InnerCanvas
+        blueprint={blueprint} projectId={projectId} orgId={orgId}
+        onEdgeSelect={onEdgeSelect}
+      />
     </ReactFlowProvider>
   );
 }

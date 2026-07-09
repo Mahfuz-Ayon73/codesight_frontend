@@ -8,6 +8,7 @@ import {
   CheckCircle, PlayCircle, BarChart2, Network, List
 } from "lucide-react";
 import type { Blueprint, AnalysisStatus } from "@/types/project/project.schema";
+import type { EdgeDiffSelection } from "@/components/canvas/EdgeDiffPanel";
 
 // Dynamically import the canvas to avoid SSR issues with React Flow
 const CodeSightCanvas = dynamic(() => import("@/components/canvas/CodeSightCanvas"), {
@@ -18,6 +19,7 @@ const CodeSightCanvas = dynamic(() => import("@/components/canvas/CodeSightCanva
     </div>
   ),
 });
+const EdgeDiffPanel = dynamic(() => import("@/components/canvas/EdgeDiffPanel"), { ssr: false });
 
 type Props = {
   organizationId: string;
@@ -216,6 +218,9 @@ export default function AnalysisView({ organizationId, projectId, initialStatus 
 
 function BlueprintResults({ blueprint, projectId, organizationId }: { blueprint: Blueprint; projectId: string; organizationId: string }) {
   const [viewMode, setViewMode] = useState<"canvas" | "list">("canvas");
+  // Edge clicked in the graph's flow mode — renders as its own section below the
+  // canvas (not inside it), so the canvas itself never resizes.
+  const [edgeSelection, setEdgeSelection] = useState<EdgeDiffSelection | null>(null);
   const meta = blueprint.project_metadata;
 
   return (
@@ -259,12 +264,27 @@ function BlueprintResults({ blueprint, projectId, organizationId }: { blueprint:
 
       {/* Canvas */}
       {viewMode === "canvas" && (
-        <div
-          className="-mx-6 w-[calc(100%+3rem)]"
-          style={{ height: "calc(100vh - 160px)", minHeight: 640 }}
-        >
-          <CodeSightCanvas blueprint={blueprint} projectId={projectId} orgId={organizationId} />
-        </div>
+        <>
+          <div
+            className="-mx-6 w-[calc(100%+3rem)]"
+            style={{ height: "calc(100vh - 160px)", minHeight: 640 }}
+          >
+            <CodeSightCanvas
+              blueprint={blueprint} projectId={projectId} orgId={organizationId}
+              onEdgeSelect={setEdgeSelection}
+            />
+          </div>
+
+          {/* Edge relation code view — a separate section below the canvas (the
+              parent's flex gap-4 gives it breathing room), never overlapping or
+              resizing the graph above it. */}
+          <EdgeDiffPanel
+            selection={edgeSelection}
+            organizationId={organizationId}
+            projectId={projectId}
+            onClose={() => setEdgeSelection(null)}
+          />
+        </>
       )}
 
       {/* List */}

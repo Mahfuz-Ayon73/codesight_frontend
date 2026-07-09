@@ -184,6 +184,7 @@ export default function EdgeDiffPanel({
   selection, organizationId, projectId, onClose,
 }: EdgeDiffPanelProps) {
   const isOpen = selection !== null;
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!selection) return;
@@ -191,6 +192,18 @@ export default function EdgeDiffPanel({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [selection, onClose]);
+
+  // This section lives below the (near-full-viewport-height) canvas in normal
+  // page flow, so opening it happens well outside the visible scroll area —
+  // without this it silently opens off-screen. Delay matches the height/opacity
+  // transition so we scroll once the panel has actually expanded.
+  useEffect(() => {
+    if (!selection) return;
+    const id = window.setTimeout(() => {
+      containerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 320);
+    return () => window.clearTimeout(id);
+  }, [selection]);
 
   const edgeColor = selection
     ? (EDGE_TYPE_COLORS[selection.edgeType as keyof typeof EDGE_TYPE_COLORS] ?? "rgba(99,102,241,0.85)")
@@ -202,23 +215,24 @@ export default function EdgeDiffPanel({
 
   return (
     <div
-      className="relative w-full shrink-0 overflow-hidden transition-all duration-300"
+      ref={containerRef}
+      className="relative w-full overflow-hidden transition-all duration-300"
       style={{
-        // Percentage of the flex-col parent's own height (fixed to the viewport by
-        // AnalysisView) — not vh/px. The graph above is flex-1, so it always keeps
-        // the remaining ~55%. Both stay on screen at once, with no scrolling ever
-        // required to see either one.
-        height:         isOpen ? "45%" : 0,
+        // A standalone section below the canvas card — not part of its flex layout,
+        // so opening this never changes the graph's size. Fixed height (not a
+        // percentage of anything), since it's independent of the canvas now. The
+        // host page's flex `gap` supplies the spacing from the canvas above.
+        height:         isOpen ? 560 : 0,
         opacity:        isOpen ? 1 : 0,
       }}
     >
       <div
-        className="flex flex-col w-full h-full overflow-hidden"
+        className="flex flex-col w-full h-full overflow-hidden rounded-2xl"
         style={{
           background:     "rgba(8,8,16,0.97)",
           backdropFilter: "blur(18px)",
           WebkitBackdropFilter: "blur(18px)",
-          borderTop:      "1px solid rgba(255,255,255,0.08)",
+          border:         "1px solid rgba(255,255,255,0.08)",
         }}
       >
         {isOpen && selection && (
