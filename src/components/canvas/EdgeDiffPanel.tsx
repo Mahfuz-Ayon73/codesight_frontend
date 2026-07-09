@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { GitBranch, X, AlertTriangle } from "lucide-react";
 import type { BlueprintNode } from "@/types/project/project.schema";
@@ -48,11 +48,85 @@ function detectLanguage(path: string): string {
 
 const HIGHLIGHT_ID = "edge-diff-highlight-line";
 
+// react-syntax-highlighter's internal AST node shape (hast-like) — not exported
+// by its type package beyond the `renderer` prop's callback signature.
+interface CodeNode {
+  type:        "element" | "text";
+  value?:      string | number;
+  tagName?:    keyof React.JSX.IntrinsicElements | React.ComponentType<unknown>;
+  properties?: { className: string[]; [key: string]: unknown };
+  children?:   CodeNode[];
+}
+
+const RELATION_HIGHLIGHT_STYLE = {
+  color: "#67e8f9", background: "rgba(6,182,212,0.18)", borderRadius: 2, fontWeight: 700,
+} as const;
+
+function isWordChar(ch: string | undefined): boolean {
+  return !!ch && /[A-Za-z0-9_$]/.test(ch);
+}
+
+// Finds every whole-word occurrence of any `terms` entry in `text`, longest
+// term first (so a longer name always wins over a shorter one it contains),
+// and skips overlaps with an already-found range.
+function findMatchRanges(text: string, terms: string[]): [number, number][] {
+  const ranges: [number, number][] = [];
+  const sorted = [...terms].filter(Boolean).sort((a, b) => b.length - a.length);
+  for (const term of sorted) {
+    let from = 0;
+    while (from <= text.length) {
+      const idx = text.indexOf(term, from);
+      if (idx === -1) break;
+      const end = idx + term.length;
+      from = idx + 1;
+      if (isWordChar(text[idx - 1]) || isWordChar(text[end])) continue;
+      if (ranges.some(([s, e]) => idx < e && end > s)) continue;
+      ranges.push([idx, end]);
+    }
+  }
+  return ranges.sort((a, b) => a[0] - b[0]);
+}
+
+// Splits a text leaf around every whole-word match, wrapping each match in a
+// cyan span (an empty className skips the Prism stylesheet lookup in
+// create-element.js, so this color can't be overridden by token coloring).
+function splitTextWithHighlights(text: string, terms: string[]): CodeNode[] {
+  const ranges = findMatchRanges(text, terms);
+  if (ranges.length === 0) return [{ type: "text", value: text }];
+  const out: CodeNode[] = [];
+  let cursor = 0;
+  for (const [start, end] of ranges) {
+    if (start > cursor) out.push({ type: "text", value: text.slice(cursor, start) });
+    out.push({
+      type: "element", tagName: "span",
+      properties: { className: [], style: RELATION_HIGHLIGHT_STYLE },
+      children: [{ type: "text", value: text.slice(start, end) }],
+    });
+    cursor = end;
+  }
+  if (cursor < text.length) out.push({ type: "text", value: text.slice(cursor) });
+  return out;
+}
+
+// Recursively expands a node into one-or-more nodes with every relation-term
+// occurrence highlighted — used across the whole file (not just the
+// import/definition line) so every usage site is visible at a glance.
+function expandHighlights(node: CodeNode, terms: string[]): CodeNode[] {
+  if (node.type === "text" && typeof node.value === "string") {
+    return splitTextWithHighlights(node.value, terms);
+  }
+  if (node.children) {
+    return [{ ...node, children: node.children.flatMap((c) => expandHighlights(c, terms)) }];
+  }
+  return [node];
+}
+
 function DiffPane({
-  node, highlightLine, organizationId, projectId, side,
+  node, highlightLine, relationTerms, organizationId, projectId, side,
 }: {
   node: BlueprintNode;
   highlightLine: number | null;
+  relationTerms: string[];
   organizationId?: string;
   projectId: string;
   side: "source" | "target";
@@ -152,17 +226,16 @@ function DiffPane({
             showLineNumbers
             wrapLines
             wrapLongLines={false}
-            lineProps={(lineNumber: number) => {
-              if (lineNumber !== highlightLine) return {};
-              return {
-                id: `${HIGHLIGHT_ID}-${side}`,
-                style: {
-                  display:     "block",
-                  borderLeft:  "2px solid rgba(6,182,212,0.9)",
-                  marginLeft:  -2,
-                  paddingLeft: 2,
-                },
-              };
+            lineProps={(lineNumber: number) => (lineNumber === highlightLine ? { id: `${HIGHLIGHT_ID}-${side}` } : {})}
+            renderer={({ rows, stylesheet, useInlineStyles }) => rows.map((row, i) => {
+              if (relationTerms.length > 0 && row.children) {
+                const expanded: CodeNode = { ...row, children: row.children.flatMap((c) => expandHighlights(c, relationTerms)) };
+                return createElement({ node: expanded, stylesheet, useInlineStyles, key: `code-segment-${i}` });
+              }
+              return createElement({ node: row, stylesheet, useInlineStyles, key: `code-segment-${i}` });
+            })}
+            codeTagProps={{
+              style: { ...oneDark['code[class*="language-"]'], background: "transparent" },
             }}
             customStyle={{
               background: "transparent",
@@ -212,6 +285,9 @@ export default function EdgeDiffPanel({
     ? selection.calledNames.join(", ")
     : selection?.binding || selection?.edgeType;
   const hasLineData = selection ? (selection.sourceLine != null || selection.targetLine != null) : false;
+  const relationTerms = selection?.calledNames?.length
+    ? selection.calledNames
+    : selection?.binding ? [selection.binding] : [];
 
   return (
     <div
@@ -274,11 +350,11 @@ export default function EdgeDiffPanel({
             {/* Side-by-side body */}
             <div className="flex-1 grid grid-cols-2 divide-x divide-white/[0.06] overflow-hidden">
               <DiffPane
-                node={selection.sourceNode} highlightLine={selection.sourceLine}
+                node={selection.sourceNode} highlightLine={selection.sourceLine} relationTerms={relationTerms}
                 organizationId={organizationId} projectId={projectId} side="source"
               />
               <DiffPane
-                node={selection.targetNode} highlightLine={selection.targetLine}
+                node={selection.targetNode} highlightLine={selection.targetLine} relationTerms={relationTerms}
                 organizationId={organizationId} projectId={projectId} side="target"
               />
             </div>
