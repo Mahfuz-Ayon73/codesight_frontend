@@ -8,7 +8,10 @@ import { Building2, Clock, GitBranch, FolderArchive, Folder, ArrowRight } from "
 import type { Blueprint, Project } from "@/types/project/project.schema";
 import DashboardGraphPreview from "@/components/project/DashboardGraphPreview";
 
-export default async function WorkspacePage() {
+type Props = { searchParams: Promise<{ projectId?: string }> };
+
+export default async function WorkspacePage({ searchParams }: Props) {
+  const { projectId: requestedProjectId } = await searchParams;
   const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_TOKEN_COOKIE)?.value;
   if (!token) redirect("/login");
@@ -35,11 +38,18 @@ export default async function WorkspacePage() {
     return tb.localeCompare(ta);
   })[0] ?? null;
 
-  const hasAnalysis = lastProject?.analysisStatus === "COMPLETED";
+  // "Open in workspace" links here with a specific project — show that one instead
+  // of whichever project was last active.
+  const requestedProject = requestedProjectId
+    ? allProjects.find((p) => p.id === requestedProjectId) ?? null
+    : null;
+  const targetProject = requestedProject ?? lastProject;
 
-  const blueprint: Blueprint | null = hasAnalysis && lastProject
+  const hasAnalysis = targetProject?.analysisStatus === "COMPLETED";
+
+  const blueprint: Blueprint | null = hasAnalysis && targetProject
     ? await projectService
-        .getBlueprint(token, lastProject.organizationId, lastProject.id)
+        .getBlueprint(token, targetProject.organizationId, targetProject.id)
         .catch(() => null)
     : null;
 
@@ -47,7 +57,9 @@ export default async function WorkspacePage() {
     <div className="max-w-5xl mx-auto flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-bold text-zinc-900">My Workspace</h1>
-        <p className="mt-1 text-sm text-zinc-500">Your last active project at a glance.</p>
+        <p className="mt-1 text-sm text-zinc-500">
+          {requestedProject ? `Viewing ${requestedProject.name}.` : "Your last active project at a glance."}
+        </p>
       </div>
 
       {!hasOrgs ? (
@@ -67,7 +79,7 @@ export default async function WorkspacePage() {
             Create organization
           </Link>
         </div>
-      ) : !lastProject ? (
+      ) : !targetProject ? (
         /* Has org but no projects */
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white py-16 text-center px-6">
           <p className="text-base font-semibold text-zinc-700">No projects yet</p>
@@ -83,39 +95,33 @@ export default async function WorkspacePage() {
         </div>
       ) : (
         <>
-          {/* Last project card */}
+          {/* Project card */}
           <div className="rounded-2xl border border-zinc-200 bg-white p-6">
             <div className="flex items-start justify-between mb-4">
               <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-2 text-xs text-zinc-400">
-                  <SourceIcon type={lastProject.sourceType} />
-                  <span>{lastProject.orgName}</span>
+                  <SourceIcon type={targetProject.sourceType} />
+                  <span>{targetProject.orgName}</span>
                 </div>
-                <h2 className="text-lg font-semibold text-zinc-900">{lastProject.name}</h2>
-                {lastProject.description && (
-                  <p className="text-sm text-zinc-500">{lastProject.description}</p>
+                <h2 className="text-lg font-semibold text-zinc-900">{targetProject.name}</h2>
+                {targetProject.description && (
+                  <p className="text-sm text-zinc-500">{targetProject.description}</p>
                 )}
               </div>
               <div className="flex items-center gap-3">
-                <StatusBadge status={lastProject.analysisStatus} />
-                <Link
-                  href={`/organizations/${lastProject.organizationId}/projects/${lastProject.id}`}
-                  className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 transition"
-                >
-                  Open project <ArrowRight size={12} />
-                </Link>
+                <StatusBadge status={targetProject.analysisStatus} />
               </div>
             </div>
 
             <div className="flex items-center gap-4 text-xs text-zinc-400 border-t border-zinc-100 pt-4">
               <span className="flex items-center gap-1">
                 <Clock size={11} />
-                {lastProject.uploadedAt
-                  ? `Uploaded ${formatDate(lastProject.uploadedAt)}`
+                {targetProject.uploadedAt
+                  ? `Uploaded ${formatDate(targetProject.uploadedAt)}`
                   : "Not uploaded yet"}
               </span>
-              {lastProject.createdAt && (
-                <span>Created {formatDate(lastProject.createdAt)}</span>
+              {targetProject.createdAt && (
+                <span>Created {formatDate(targetProject.createdAt)}</span>
               )}
             </div>
           </div>
@@ -125,11 +131,11 @@ export default async function WorkspacePage() {
             <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100">
               <div>
                 <p className="text-sm font-semibold text-zinc-800">Codebase Graph</p>
-                <p className="text-xs text-zinc-400">Cluster map of your last active project</p>
+                <p className="text-xs text-zinc-400">Cluster map of {targetProject.name}</p>
               </div>
               {hasAnalysis && (
                 <Link
-                  href={`/organizations/${lastProject.organizationId}/projects/${lastProject.id}`}
+                  href={`/organizations/${targetProject.organizationId}/projects/${targetProject.id}`}
                   className="text-xs text-cyan-600 hover:underline"
                 >
                   View full analysis
@@ -138,7 +144,7 @@ export default async function WorkspacePage() {
             </div>
 
             {hasAnalysis && blueprint ? (
-              <DashboardGraphPreview blueprint={blueprint} projectId={lastProject.id} orgId={lastProject.organizationId} />
+              <DashboardGraphPreview blueprint={blueprint} projectId={targetProject.id} orgId={targetProject.organizationId} />
             ) : hasAnalysis && !blueprint ? (
               <div className="flex items-center justify-center h-64 text-sm text-zinc-400">
                 Could not load graph data
@@ -147,15 +153,15 @@ export default async function WorkspacePage() {
               <div className="flex flex-col items-center justify-center h-64 text-center px-6">
                 <p className="text-sm font-medium text-zinc-600">No analysis available yet</p>
                 <p className="mt-1 text-xs text-zinc-400">
-                  {lastProject.analysisStatus === "PENDING_UPLOAD"
+                  {targetProject.analysisStatus === "PENDING_UPLOAD"
                     ? "Upload your source code to start the analysis."
-                    : lastProject.analysisStatus === "FAILED"
+                    : targetProject.analysisStatus === "FAILED"
                     ? "The last analysis failed. Try re-uploading your code."
                     : "Analysis is in progress — check back soon."}
                 </p>
-                {lastProject.analysisStatus === "PENDING_UPLOAD" && (
+                {targetProject.analysisStatus === "PENDING_UPLOAD" && (
                   <Link
-                    href={`/organizations/${lastProject.organizationId}/projects/${lastProject.id}`}
+                    href={`/organizations/${targetProject.organizationId}/projects/${targetProject.id}`}
                     className="mt-4 flex items-center gap-1.5 rounded-lg bg-cyan-500 px-4 py-2 text-xs font-medium text-white hover:bg-cyan-600 transition"
                   >
                     Upload code <ArrowRight size={12} />

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { organizationService } from "@/services/organization/organization.service";
 import { projectService } from "@/services/project/project.service";
 import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
-import { Clock, FolderOpen, Plus } from "lucide-react";
+import { Clock, FolderOpen, Plus, Info, ArrowUpRight } from "lucide-react";
 
 export default async function ProjectsPage() {
   const cookieStore = await cookies();
@@ -65,13 +65,12 @@ export default async function ProjectsPage() {
       ) : (
         <div className="flex flex-col divide-y divide-zinc-100 rounded-2xl border border-zinc-200 bg-white overflow-hidden">
           {allProjects.map((project) => (
-            <Link
+            <div
               key={project.id}
-              href={`/organizations/${project.organizationId}/projects/${project.id}`}
               className="flex items-center justify-between px-5 py-4 hover:bg-zinc-50 transition group"
             >
-              <div className="flex flex-col gap-0.5">
-                <p className="text-sm font-medium text-zinc-800 group-hover:text-cyan-600 transition">
+              <div className="flex flex-col gap-0.5 min-w-0">
+                <p className="text-sm font-medium text-zinc-800">
                   {project.name}
                 </p>
                 <div className="flex items-center gap-2 text-xs text-zinc-400">
@@ -84,7 +83,7 @@ export default async function ProjectsPage() {
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 shrink-0">
                 <div className="flex items-center gap-1 text-xs text-zinc-400">
                   <Clock size={11} />
                   {project.uploadedAt
@@ -92,8 +91,22 @@ export default async function ProjectsPage() {
                     : "Not uploaded"}
                 </div>
                 <StatusBadge status={project.analysisStatus} />
+                <Link
+                  href={`/organizations/${project.organizationId}/projects/${project.id}/details`}
+                  className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 transition"
+                >
+                  <Info size={12} />
+                  Show details
+                </Link>
+                <Link
+                  href={`/?projectId=${project.id}`}
+                  className="flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-cyan-600 transition"
+                >
+                  Open in workspace
+                  <ArrowUpRight size={12} />
+                </Link>
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}

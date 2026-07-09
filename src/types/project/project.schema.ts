@@ -43,6 +43,10 @@ export interface CreateProjectInput {
   description?: string;
 }
 
+export interface UpdateProjectInput {
+  description: string;
+}
+
 export interface InviteProjectMemberInput {
   email: string;
   role: ProjectMemberRole;

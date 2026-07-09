@@ -21,3 +21,21 @@ export async function listOrganizationsAction() {
   if (!token) throw new Error("Not authenticated");
   return organizationService.list(token);
 }
+
+export async function getOrganizationAction(id: string) {
+  const token = await getToken();
+  if (!token) throw new Error("Not authenticated");
+  return organizationService.getById(token, id);
+}
+
+export async function listOrganizationMembersAction(id: string) {
+  const token = await getToken();
+  if (!token) throw new Error("Not authenticated");
+  return organizationService.listMembers(token, id);
+}
+
+export async function deleteOrganizationAction(id: string) {
+  const token = await getToken();
+  if (!token) throw new Error("Not authenticated");
+  return organizationService.delete(token, id);
+}

@@ -1,5 +1,9 @@
 import { apiFetch } from "@/api-methods/api-methods";
-import type { CreateOrganizationInput, Organization } from "@/types/organization/organization.schema";
+import type {
+  CreateOrganizationInput,
+  Organization,
+  OrganizationMember,
+} from "@/types/organization/organization.schema";
 
 export const organizationService = {
   list: (token: string) =>
@@ -14,6 +18,15 @@ export const organizationService = {
     }),
   getById: (token: string, id: string) =>
     apiFetch<Organization>(`/api/v1/organizations/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+  listMembers: (token: string, id: string) =>
+    apiFetch<OrganizationMember[]>(`/api/v1/organizations/${id}/members`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+  delete: (token: string, id: string) =>
+    apiFetch<void>(`/api/v1/organizations/${id}`, {
+      method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     }),
 };

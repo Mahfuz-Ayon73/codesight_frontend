@@ -5,6 +5,7 @@ import { projectService } from "@/services/project/project.service";
 import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
 import type {
   CreateProjectInput,
+  UpdateProjectInput,
   InviteProjectMemberInput,
   UpdateProjectMemberRoleInput,
 } from "@/types/project/project.schema";
@@ -29,6 +30,11 @@ export async function createProjectAction(orgId: string, data: CreateProjectInpu
 export async function getProjectAction(orgId: string, projectId: string) {
   const token = await getToken();
   return projectService.getById(token, orgId, projectId);
+}
+
+export async function updateProjectAction(orgId: string, projectId: string, data: UpdateProjectInput) {
+  const token = await getToken();
+  return projectService.update(token, orgId, projectId, data);
 }
 
 export async function deleteProjectAction(orgId: string, projectId: string) {

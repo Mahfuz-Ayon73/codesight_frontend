@@ -3,6 +3,7 @@ import type {
   Project,
   ProjectMember,
   CreateProjectInput,
+  UpdateProjectInput,
   InviteProjectMemberInput,
   UpdateProjectMemberRoleInput,
   Blueprint,
@@ -26,6 +27,13 @@ export const projectService = {
   getById: (token: string, orgId: string, projectId: string) =>
     apiFetch<Project>(`${base(orgId)}/${projectId}`, {
       headers: { Authorization: `Bearer ${token}` },
+    }),
+
+  update: (token: string, orgId: string, projectId: string, data: UpdateProjectInput) =>
+    apiFetch<Project>(`${base(orgId)}/${projectId}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
     }),
 
   delete: (token: string, orgId: string, projectId: string) =>
