@@ -1,12 +1,15 @@
 import Navbar from "@/components/navbar/navbar";
 import Sidebar from "@/components/sidebar/sidebar";
+import { getProfileAction } from "@/actions/user.action";
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const user = await getProfileAction().catch(() => null);
+
   return (
     <div className="min-h-screen">
       {/* Fixed navbar */}
       <header className="fixed top-0 left-0 right-0 z-30 h-14">
-        <Navbar />
+        <Navbar user={user} />
       </header>
 
       {/* Fixed sidebar */}

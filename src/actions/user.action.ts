@@ -10,3 +10,10 @@ export async function getProfileAction() {
   if (!token) throw new Error("Not authenticated");
   return userService.getProfile(token);
 }
+
+export async function changePasswordAction(currentPassword: string, newPassword: string) {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(AUTH_TOKEN_COOKIE)?.value;
+  if (!token) throw new Error("Not authenticated");
+  return userService.changePassword(token, currentPassword, newPassword);
+}

@@ -5,8 +5,14 @@ import { Bell, UserPlus } from "lucide-react";
 import Link from "next/link";
 import OrgSwitcher from "@/components/navbar/OrgSwitcher";
 import InviteDialog from "@/components/Organization/InviteDialog";
+import UserMenu from "@/components/navbar/UserMenu";
+import type { User } from "@/types/auth/auth.schema";
 
-export default function Navbar() {
+type Props = {
+  user: User | null;
+};
+
+export default function Navbar({ user }: Props) {
   const [inviteOpen, setInviteOpen] = useState(false);
 
   return (
@@ -35,9 +41,13 @@ export default function Navbar() {
         <button className="rounded-full p-1.5 hover:bg-zinc-100 text-zinc-500">
           <Bell size={18} />
         </button>
-        <div className="h-8 w-8 rounded-full bg-cyan-500 flex items-center justify-center text-white text-xs font-semibold">
-          U
-        </div>
+        {user ? (
+          <UserMenu user={user} />
+        ) : (
+          <div className="h-8 w-8 rounded-full bg-cyan-500 flex items-center justify-center text-white text-xs font-semibold">
+            U
+          </div>
+        )}
       </div>
 
       <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} />

@@ -6,4 +6,11 @@ export const userService = {
     apiFetch<User>("/api/v1/users/profile", {
       headers: { Authorization: `Bearer ${token}` },
     }),
+
+  changePassword: (token: string, currentPassword: string, newPassword: string) =>
+    apiFetch<{ message: string }>("/api/v1/users/password", {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
 };
