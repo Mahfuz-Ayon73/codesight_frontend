@@ -25,6 +25,10 @@ export async function resendVerificationAction(email: string) {
   return authService.resendVerification(email);
 }
 
+export async function verifyEmailAction(token: string) {
+  return authService.verifyEmail(token);
+}
+
 export async function forgotPasswordAction(email: string) {
   return authService.forgotPassword(email);
 }

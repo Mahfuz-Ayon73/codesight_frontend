@@ -2,10 +2,10 @@ import Link from "next/link";
 import AuthPageBackgroundDesign from "@/components/UI/AuthPage-Background-Design";
 import SignInForm from "@/components/Authentication/SignInForm";
 
-type Props = { searchParams: Promise<{ registered?: string }> };
+type Props = { searchParams: Promise<{ registered?: string; redirect?: string }> };
 
 export default async function LoginPage({ searchParams }: Props) {
-  const { registered } = await searchParams;
+  const { registered, redirect } = await searchParams;
 
   return (
     <AuthPageBackgroundDesign maxWidth="max-w-4xl">
@@ -21,7 +21,10 @@ export default async function LoginPage({ searchParams }: Props) {
           </p>
           <p className="mt-6 text-xs text-zinc-500">
             No account?{" "}
-            <Link href="/signup" className="font-medium text-cyan-600 underline underline-offset-2">
+            <Link
+              href={redirect ? `/signup?redirect=${encodeURIComponent(redirect)}` : "/signup"}
+              className="font-medium text-cyan-600 underline underline-offset-2"
+            >
               Sign up for free
             </Link>
           </p>
@@ -39,7 +42,7 @@ export default async function LoginPage({ searchParams }: Props) {
           ) : null}
           <h2 className="mb-1 text-xl font-semibold text-zinc-800 text-center">Welcome to CodeSight</h2>
           <p className="mb-4 text-sm font-normal text-zinc-500 text-center">Login to your Account</p>
-          <SignInForm />
+          <SignInForm redirectTo={redirect} />
         </div>
 
       </div>

@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useOrganizations } from "@/hooks/Organization/Organization.hooks";
+import { listOrganizationsAction } from "@/actions/organization.action";
 import { LayoutDashboard, FolderOpen, BarChart2, Users, Settings, Plus } from "lucide-react";
 
 const navItems = [
@@ -17,14 +19,25 @@ export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { organizations, loading } = useOrganizations();
+  const [checking, setChecking] = useState(false);
 
-  function handleCreateProject() {
-    if (loading) return;
-    const firstOrgId = organizations?.[0]?.id;
-    if (firstOrgId) {
-      router.push(`/organizations/${firstOrgId}/projects/new`);
-    } else {
-      router.push("/onboarding/create-organization");
+  // Only an organization's OWNER may create projects in it — being invited
+  // as a member only grants access to specific assigned projects, not the
+  // right to add more. Re-fetch fresh (rather than trusting possibly-stale
+  // hook state) so a just-created organization is never missed here.
+  async function handleCreateProject() {
+    if (loading || checking) return;
+    setChecking(true);
+    try {
+      const freshOrgs = await listOrganizationsAction().catch(() => organizations);
+      const ownedOrgId = freshOrgs?.find((o) => o.myRole === "OWNER")?.id;
+      if (ownedOrgId) {
+        router.push(`/organizations/${ownedOrgId}/projects/new`);
+      } else {
+        router.push("/onboarding/create-organization");
+      }
+    } finally {
+      setChecking(false);
     }
   }
 
@@ -34,7 +47,7 @@ export default function Sidebar() {
       <div className="p-3 border-b border-zinc-100">
         <button
           onClick={handleCreateProject}
-          disabled={loading}
+          disabled={loading || checking}
           className="flex items-center justify-center gap-2 w-full rounded-lg bg-cyan-500 px-3 py-2 text-sm font-medium text-white hover:bg-cyan-600 transition disabled:opacity-60"
         >
           <Plus size={15} />

@@ -6,12 +6,17 @@ import { projectService } from "@/services/project/project.service";
 import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
 import { Clock, FolderOpen, Plus, Info, ArrowUpRight } from "lucide-react";
 
+// Data is user/session-scoped; never let the client Router Cache reuse a
+// render from a different account.
+export const dynamic = "force-dynamic";
+
 export default async function ProjectsPage() {
   const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_TOKEN_COOKIE)?.value;
   if (!token) redirect("/login");
 
   const organizations = await organizationService.list(token).catch(() => []);
+  const ownedOrgId = organizations.find((o) => o.myRole === "OWNER")?.id;
 
   const allProjects = (
     await Promise.all(
@@ -44,9 +49,9 @@ export default async function ProjectsPage() {
           <p className="mt-2 mb-6 max-w-xs text-sm text-zinc-400">
             Create a project inside an organization to start analyzing your code.
           </p>
-          {organizations.length > 0 ? (
+          {ownedOrgId ? (
             <Link
-              href={`/organizations/${organizations[0].id}/projects/new`}
+              href={`/organizations/${ownedOrgId}/projects/new`}
               className="flex items-center gap-2 rounded-lg bg-cyan-500 px-5 py-2 text-sm font-medium text-white hover:bg-cyan-600 transition"
             >
               <Plus size={15} />

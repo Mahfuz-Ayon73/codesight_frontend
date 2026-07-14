@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, ArrowRight } from "lucide-react";
+import Link from "next/link";
+import { Building2, ArrowRight, ArrowLeft } from "lucide-react";
 import { createOrganizationAction } from "@/actions/organization.action";
 import Button from "@/components/Button/Button";
 
@@ -16,9 +17,9 @@ function suggestName(firstName: string) {
   return `${base}-${shortId()}`;
 }
 
-type Props = { firstName: string };
+type Props = { firstName: string; skipHref?: string };
 
-export default function CreateOrgForm({ firstName }: Props) {
+export default function CreateOrgForm({ firstName, skipHref = "/" }: Props) {
   const router = useRouter();
   const [name, setName] = useState(() => suggestName(firstName));
   const [description, setDescription] = useState("");
@@ -42,6 +43,14 @@ export default function CreateOrgForm({ firstName }: Props) {
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
       <div className="mb-6 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => router.back()}
+          aria-label="Back"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 transition"
+        >
+          <ArrowLeft size={16} />
+        </button>
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-50 text-cyan-500">
           <Building2 size={20} />
         </div>
@@ -84,6 +93,13 @@ export default function CreateOrgForm({ firstName }: Props) {
         <Button type="submit" disabled={loading} className="w-full flex items-center justify-center gap-2">
           {loading ? "Creating…" : <><span>Continue</span><ArrowRight size={15} /></>}
         </Button>
+
+        <Link
+          href={skipHref}
+          className="text-center text-sm font-medium text-zinc-400 hover:text-zinc-600 transition"
+        >
+          Skip for now
+        </Link>
       </form>
     </div>
   );

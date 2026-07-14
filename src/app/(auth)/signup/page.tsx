@@ -3,7 +3,11 @@ import Link from "next/link";
 import AuthPageBackgroundDesign from "@/components/UI/AuthPage-Background-Design";
 import SignUpForm from "@/components/Authentication/SignUpForm";
 
-export default function SignupPage() {
+type Props = { searchParams: Promise<{ email?: string; redirect?: string }> };
+
+export default async function SignupPage({ searchParams }: Props) {
+  const { redirect } = await searchParams;
+  const loginHref = redirect ? `/login?redirect=${encodeURIComponent(redirect)}` : "/login";
   return (
     <AuthPageBackgroundDesign maxWidth="max-w-[950px]">
       <div className="flex w-full min-h-[450px] overflow-hidden rounded-2xl border border-white/30 bg-white/20 shadow-2xl backdrop-blur-md">
@@ -18,7 +22,7 @@ export default function SignupPage() {
           </p>
           <p className="mt-6 text-xs text-zinc-500">
             Already have an account?{" "}
-            <Link href="/login" className="font-medium text-cyan-600 underline underline-offset-2">
+            <Link href={loginHref} className="font-medium text-cyan-600 underline underline-offset-2">
               Sign in
             </Link>
           </p>

@@ -11,6 +11,7 @@ export default function SignUpForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const prefilledEmail = searchParams.get("email") ?? "";
+  const redirect = searchParams.get("redirect");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -33,8 +34,10 @@ export default function SignUpForm() {
         email: String(form.get("email")),
         password,
       });
-      // Redirect to login with a hint to verify email
-      router.push("/login?registered=1");
+      // Redirect to login with a hint to verify email, preserving where to go afterward
+      const params = new URLSearchParams({ registered: "1" });
+      if (redirect && redirect.startsWith("/")) params.set("redirect", redirect);
+      router.push(`/login?${params.toString()}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign up failed");
     } finally {

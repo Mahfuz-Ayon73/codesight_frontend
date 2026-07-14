@@ -47,7 +47,7 @@ export default async function InvitationPage({ params }: Props) {
             message={`This invitation to join ${invitation.organizationName} has expired. Ask them to send a new one.`}
           />
         ) : !currentUser ? (
-          <LoggedOutPrompt email={invitation.email} />
+          <LoggedOutPrompt email={invitation.email} token={token} />
         ) : invitation.email.toLowerCase() !== currentUser.email.toLowerCase() ? (
           <ErrorMessage
             message={`This invitation was sent to ${invitation.email}, but you're logged in as ${currentUser.email}. Log out and sign in with the invited email to accept.`}
@@ -86,22 +86,23 @@ export default async function InvitationPage({ params }: Props) {
   );
 }
 
-function LoggedOutPrompt({ email }: { email: string }) {
+function LoggedOutPrompt({ email, token }: { email: string; token: string }) {
+  const redirect = encodeURIComponent(`/invitations/${token}`);
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-zinc-600">
         Log in or create an account with <span className="font-medium text-zinc-800">{email}</span> to accept this
-        invitation. After you&apos;re signed in, reopen this same link to continue.
+        invitation. You&apos;ll be brought straight back here afterward.
       </p>
       <div className="flex gap-2">
         <Link
-          href="/login"
+          href={`/login?redirect=${redirect}`}
           className="flex-1 text-center rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-600 transition"
         >
           Log in
         </Link>
         <Link
-          href={`/signup?email=${encodeURIComponent(email)}`}
+          href={`/signup?email=${encodeURIComponent(email)}&redirect=${redirect}`}
           className="flex-1 text-center rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition"
         >
           Sign up

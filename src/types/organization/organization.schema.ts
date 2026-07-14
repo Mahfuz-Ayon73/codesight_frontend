@@ -6,6 +6,8 @@ export interface Organization {
   createdByUserId?: string;
   createdAt?: string;
   updatedAt?: string;
+  /** The current user's own role in this organization (OWNER/ADMIN/MEMBER). */
+  myRole?: OrganizationMemberRole;
 }
 
 export interface CreateOrganizationInput {

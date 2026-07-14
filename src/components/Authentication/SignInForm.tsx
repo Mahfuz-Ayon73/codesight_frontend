@@ -8,8 +8,9 @@ import Button from "@/components/Button/Button";
 import InputField from "@/components/InputField/InputField";
 import { ApiError } from "@/lib/exception";
 
-export default function SignInForm() {
+export default function SignInForm({ redirectTo }: { redirectTo?: string }) {
   const router = useRouter();
+  const target = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/";
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
@@ -26,7 +27,7 @@ export default function SignInForm() {
 
     try {
       await signInAction({ email, password: String(form.get("password")) });
-      router.push("/");
+      router.push(target);
       router.refresh();
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
