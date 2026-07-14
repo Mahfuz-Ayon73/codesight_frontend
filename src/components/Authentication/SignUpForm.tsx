@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import { signUpAction } from "@/actions/auth.action";
 import Button from "@/components/Button/Button";
@@ -9,6 +9,8 @@ import InputField from "@/components/InputField/InputField";
 
 export default function SignUpForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const prefilledEmail = searchParams.get("email") ?? "";
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -47,7 +49,7 @@ export default function SignUpForm() {
       <InputField label="Last name" name="lastName" required />
 
       <div className="col-span-2">
-        <InputField label="Email" name="email" type="email" required />
+        <InputField label="Email" name="email" type="email" defaultValue={prefilledEmail} required />
       </div>
 
       <div className="flex flex-col gap-1">

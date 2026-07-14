@@ -1,8 +1,17 @@
 @import "tailwindcss";
 
+/*
+ * This app has no dark theme: no component uses a `dark:` variant and
+ * there is no theme provider/toggle anywhere. Pin the color scheme to
+ * light so the OS/browser never substitutes its own dark-mode text and
+ * form colors on top of our light-only card/input styling — that
+ * mismatch was the cause of "gray, barely visible" text on browsers
+ * where the user's OS/browser preference was set to dark.
+ */
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  color-scheme: light only;
 }
 
 @theme inline {
@@ -11,15 +20,30 @@
   --font-sans: var(--font-poppins);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-poppins), sans-serif;
+}
+
+/*
+ * Belt-and-suspenders: still force an explicit, high-contrast text
+ * color on form controls even though color-scheme is pinned above.
+ * Elements that intentionally sit on a dark background (e.g. the flow
+ * canvas toolbar) already set their own `text-*` class, which wins
+ * over this plain element selector.
+ */
+input,
+textarea,
+select {
+  color: #171717;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: #171717;
+  transition: background-color 5000s ease-in-out 0s;
 }

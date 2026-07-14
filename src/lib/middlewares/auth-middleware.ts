@@ -2,11 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
 
 const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/reset-password"];
+// Reachable both logged-out and logged-in — unlike PUBLIC_PATHS, being logged in does NOT
+// bounce you away from these (the invitation-accept page needs to work in both states).
+const NEUTRAL_PATHS = ["/invitations"];
 
 export function authMiddleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const token = request.cookies.get(AUTH_TOKEN_COOKIE)?.value;
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+  const isNeutral = NEUTRAL_PATHS.some((p) => pathname.startsWith(p));
   const isOnboarding = pathname.startsWith("/onboarding");
   const isApi = pathname.startsWith("/api");
 
@@ -15,6 +19,10 @@ export function authMiddleware(request: NextRequest) {
   // Never intercept API routes — they handle auth themselves
   if (isApi) {
     console.log(`[MIDDLEWARE] Passing API route through`);
+    return NextResponse.next();
+  }
+
+  if (isNeutral) {
     return NextResponse.next();
   }
 

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { organizationService } from "@/services/organization/organization.service";
 import { projectService } from "@/services/project/project.service";
 import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
-import { Building2, Clock, GitBranch, FolderArchive, Folder, ArrowRight } from "lucide-react";
+import { Building2, ArrowRight } from "lucide-react";
 import type { Blueprint, Project } from "@/types/project/project.schema";
 import DashboardGraphPreview from "@/components/project/DashboardGraphPreview";
 
@@ -95,35 +95,16 @@ export default async function WorkspacePage({ searchParams }: Props) {
         </div>
       ) : (
         <>
-          {/* Project card */}
-          <div className="rounded-2xl border border-zinc-200 bg-white p-6">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2 text-xs text-zinc-400">
-                  <SourceIcon type={targetProject.sourceType} />
-                  <span>{targetProject.orgName}</span>
-                </div>
-                <h2 className="text-lg font-semibold text-zinc-900">{targetProject.name}</h2>
-                {targetProject.description && (
-                  <p className="text-sm text-zinc-500">{targetProject.description}</p>
-                )}
-              </div>
-              <div className="flex items-center gap-3">
-                <StatusBadge status={targetProject.analysisStatus} />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4 text-xs text-zinc-400 border-t border-zinc-100 pt-4">
-              <span className="flex items-center gap-1">
-                <Clock size={11} />
-                {targetProject.uploadedAt
-                  ? `Uploaded ${formatDate(targetProject.uploadedAt)}`
-                  : "Not uploaded yet"}
-              </span>
-              {targetProject.createdAt && (
-                <span>Created {formatDate(targetProject.createdAt)}</span>
-              )}
-            </div>
+          {/* Project header */}
+          <div className="flex flex-col gap-0.5">
+            <h2 className="text-lg font-semibold text-zinc-900">{targetProject.name}</h2>
+            <p className="text-xs text-zinc-400">
+              Last modified{" "}
+              {formatDate(targetProject.updatedAt ?? targetProject.uploadedAt ?? targetProject.createdAt)}
+            </p>
+            {targetProject.description && (
+              <p className="text-sm text-zinc-500 mt-1">{targetProject.description}</p>
+            )}
           </div>
 
           {/* Graph / cluster map area */}
@@ -176,28 +157,7 @@ export default async function WorkspacePage({ searchParams }: Props) {
   );
 }
 
-function SourceIcon({ type }: { type: string }) {
-  if (type === "GITHUB") return <GitBranch size={12} />;
-  if (type === "LOCAL_ZIP") return <FolderArchive size={12} />;
-  return <Folder size={12} />;
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; className: string }> = {
-    PENDING_UPLOAD:     { label: "Pending",   className: "bg-zinc-100 text-zinc-500" },
-    READY_FOR_ANALYSIS: { label: "Ready",     className: "bg-blue-50 text-blue-600" },
-    ANALYZING:          { label: "Analyzing", className: "bg-yellow-50 text-yellow-600" },
-    COMPLETED:          { label: "Done",      className: "bg-green-50 text-green-600" },
-    FAILED:             { label: "Failed",    className: "bg-red-50 text-red-600" },
-  };
-  const { label, className } = map[status] ?? { label: status, className: "bg-zinc-100 text-zinc-500" };
-  return (
-    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${className}`}>
-      {label}
-    </span>
-  );
-}
-
-function formatDate(iso: string) {
+function formatDate(iso: string | undefined) {
+  if (!iso) return "never";
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }

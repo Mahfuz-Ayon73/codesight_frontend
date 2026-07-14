@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import AuthPageBackgroundDesign from "@/components/UI/AuthPage-Background-Design";
 import SignUpForm from "@/components/Authentication/SignUpForm";
@@ -29,7 +30,9 @@ export default function SignupPage() {
         {/* Right — form */}
         <div className="flex flex-[0.85] flex-col justify-center px-6 py-16 ">
           <h2 className="mb-6 text-xl font-semibold text-zinc-800 text-center">Create your Account</h2>
-          <SignUpForm />
+          <Suspense>
+            <SignUpForm />
+          </Suspense>
         </div>
 
       </div>

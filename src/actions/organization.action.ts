@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { organizationService } from "@/services/organization/organization.service";
 import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
-import type { CreateOrganizationInput } from "@/types/organization/organization.schema";
+import type { CreateOrganizationInput, CreateInvitationInput } from "@/types/organization/organization.schema";
 
 async function getToken() {
   const cookieStore = await cookies();
@@ -38,4 +38,10 @@ export async function deleteOrganizationAction(id: string) {
   const token = await getToken();
   if (!token) throw new Error("Not authenticated");
   return organizationService.delete(token, id);
+}
+
+export async function inviteToOrganizationAction(id: string, data: CreateInvitationInput) {
+  const token = await getToken();
+  if (!token) throw new Error("Not authenticated");
+  return organizationService.inviteMember(token, id, data);
 }

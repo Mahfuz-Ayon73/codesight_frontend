@@ -1,6 +1,8 @@
 import { apiFetch } from "@/api-methods/api-methods";
 import type {
   CreateOrganizationInput,
+  CreateInvitationInput,
+  Invitation,
   Organization,
   OrganizationMember,
 } from "@/types/organization/organization.schema";
@@ -28,5 +30,11 @@ export const organizationService = {
     apiFetch<void>(`/api/v1/organizations/${id}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
+    }),
+  inviteMember: (token: string, id: string, data: CreateInvitationInput) =>
+    apiFetch<Invitation>(`/api/v1/organizations/${id}/invitations`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
     }),
 };

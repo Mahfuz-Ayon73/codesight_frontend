@@ -1,10 +1,14 @@
 "use client";
 
-import { Bell, Search } from "lucide-react";
+import { useState } from "react";
+import { Bell, UserPlus } from "lucide-react";
 import Link from "next/link";
 import OrgSwitcher from "@/components/navbar/OrgSwitcher";
+import InviteDialog from "@/components/Organization/InviteDialog";
 
 export default function Navbar() {
+  const [inviteOpen, setInviteOpen] = useState(false);
+
   return (
     <header className="flex h-14 items-center justify-between border-b border-zinc-200 bg-white px-4 gap-4">
       {/* Left: Logo */}
@@ -14,14 +18,16 @@ export default function Navbar() {
         </span>
       </Link>
 
-      {/* Center: Org switcher + Search */}
+      {/* Center: Org switcher + Invite */}
       <div className="flex flex-1 items-center gap-3 max-w-xl">
         <OrgSwitcher />
-        <div className="flex flex-1 items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-400">
-          <Search size={14} />
-          <span>Search...</span>
-          <span className="ml-auto text-xs text-zinc-300">/</span>
-        </div>
+        <button
+          onClick={() => setInviteOpen(true)}
+          className="flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-cyan-600 transition"
+        >
+          <UserPlus size={14} />
+          Invite
+        </button>
       </div>
 
       {/* Right: actions */}
@@ -33,6 +39,8 @@ export default function Navbar() {
           U
         </div>
       </div>
+
+      <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} />
     </header>
   );
 }
