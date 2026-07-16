@@ -69,7 +69,7 @@ export interface BlueprintNode {
   /** Label-propagation result (schema >= 2.2). Null for infra/boundary/unlabeled files. */
   domain?: string | null;
   domain_confidence?: number;
-  domain_source?: "seed:dependency" | "seed:name" | "seed:dependency+name" | "propagated" | null;
+  domain_source?: "seed:dependency" | "seed:name" | "seed:dependency+name" | "seed:name-emergent" | "propagated" | null;
 }
 
 export interface BlueprintEdge {

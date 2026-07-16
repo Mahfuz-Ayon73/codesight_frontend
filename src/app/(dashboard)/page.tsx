@@ -121,14 +121,6 @@ export default async function WorkspacePage({ searchParams }: Props) {
                 <p className="text-sm font-semibold text-zinc-800">Codebase Graph</p>
                 <p className="text-xs text-zinc-400">Cluster map of {targetProject.name}</p>
               </div>
-              {hasAnalysis && (
-                <Link
-                  href={`/organizations/${targetProject.organizationId}/projects/${targetProject.id}`}
-                  className="text-xs text-cyan-600 hover:underline"
-                >
-                  View full analysis
-                </Link>
-              )}
             </div>
 
             {hasAnalysis && blueprint ? (
