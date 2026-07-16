@@ -3,6 +3,7 @@
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Layers, ChevronRight, X } from "lucide-react";
+import { getDomainStyle, formatDomainLabel } from "./domainStyles";
 
 interface ClusterGroupData {
   label:           string;
@@ -17,7 +18,40 @@ interface ClusterGroupData {
   onUnmerge?:      (mergeId: string) => void;
   isMultiSelected?: boolean;
   hideName?:       boolean;
+  domain?:           string | null;
+  domainType?:       string;
+  domainConfidence?: number | null;
+  domainEvidence?:   string[];
+  /** True when a domain spotlight filter is active and this cluster doesn't match. */
+  dimmed?:         boolean;
   [key: string]: unknown;
+}
+
+// Small colored chip naming the cluster's detected domain; tooltip carries
+// confidence + evidence. Emergent domains get a dashed border to signal
+// they're open-set names, not canonical taxonomy hits.
+function DomainBadge({ d }: { d: ClusterGroupData }) {
+  if (!d.domain || d.domainType === "UNCLASSIFIED") return null;
+  const ds = getDomainStyle(d.domain);
+  const pct = d.domainConfidence != null ? `${Math.round(d.domainConfidence * 100)}%` : null;
+  const tooltip = [
+    `${d.domain} · ${d.domainType}${pct ? ` · ${pct} confidence` : ""}`,
+    ...(d.domainEvidence ?? []),
+  ].join("\n");
+  return (
+    <span
+      title={tooltip}
+      className="inline-flex items-center gap-1 text-[8px] font-mono font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full max-w-[150px]"
+      style={{
+        background: ds.badgeBg,
+        border:     `1px ${d.domainType === "EMERGENT" ? "dashed" : "solid"} ${ds.badgeBorder}`,
+        color:      ds.badgeText,
+      }}
+    >
+      <span className="truncate">{formatDomainLabel(d.domain)}</span>
+      {pct && <span style={{ opacity: 0.55 }}>{pct}</span>}
+    </span>
+  );
 }
 
 function ClusterGroupNode({ data, selected }: NodeProps) {
@@ -56,6 +90,9 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
           >
             {d.fileCount}
           </span>
+          <span style={{ pointerEvents: "auto" }}>
+            <DomainBadge d={d} />
+          </span>
         </div>
       </div>
     );
@@ -67,6 +104,7 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
     <div
       className="relative w-full h-full rounded-2xl transition-all duration-200 cursor-pointer group"
       style={{
+        opacity:      d.dimmed ? 0.15 : 1,
         background:   d.colorBg,
         border:       d.isMerged
           ? `1.5px dashed ${isSelected ? "rgba(255,255,255,0.6)" : d.colorBorder}`
@@ -154,6 +192,11 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
             {d.fileCount} files
           </span>
         )}
+      </div>
+
+      {/* Domain badge */}
+      <div className="absolute bottom-2.5 left-3 select-none">
+        <DomainBadge d={d} />
       </div>
 
       {/* Click to open hint */}

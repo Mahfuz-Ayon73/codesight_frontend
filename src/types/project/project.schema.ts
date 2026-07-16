@@ -66,6 +66,10 @@ export interface BlueprintNode {
   execution_role: "ENTRY_POINT" | "TERMINAL_SINK" | "INTERNAL" | "SHARED_DEPENDENCY";
   external_dependencies: string[];
   text_summary: string;
+  /** Label-propagation result (schema >= 2.2). Null for infra/boundary/unlabeled files. */
+  domain?: string | null;
+  domain_confidence?: number;
+  domain_source?: "seed:dependency" | "seed:name" | "seed:dependency+name" | "propagated" | null;
 }
 
 export interface BlueprintEdge {
@@ -81,12 +85,18 @@ export interface BlueprintEdge {
   target_line?: number | null;
 }
 
+export type DomainType = "CANONICAL" | "EMERGENT" | "INFRASTRUCTURE" | "UNCLASSIFIED";
+
 export interface BlueprintCluster {
   id: string;
   name: string | null;
   parent_cluster_id: string | null;
   suggested_title: string | null;
   functional_summary: string | null;
+  domain?: string | null;
+  domain_type?: DomainType | null;
+  domain_confidence?: number | null;
+  domain_evidence?: string[];
 }
 
 export interface BlueprintMetadata {
@@ -95,6 +105,7 @@ export interface BlueprintMetadata {
   total_edges: number;
   total_clusters: number;
   max_cluster_size?: number;
+  detected_domains?: string[];
 }
 
 export interface Blueprint {
