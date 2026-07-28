@@ -54,6 +54,15 @@ export function applyMerges(
     }
     if (!emittedMergeIds.has(merge.id)) {
       emittedMergeIds.add(merge.id);
+      // The merged group keeps a domain only when every source agrees on one —
+      // a mixed-domain merge is honestly UNCLASSIFIED, not a guess.
+      const sources = merge.sourceIds
+        .map((sid) => index.clusterById.get(sid))
+        .filter((c): c is BlueprintCluster => c != null);
+      const firstDomain = sources[0]?.domain ?? null;
+      const sharedDomain = firstDomain && sources.every((c) => c.domain === firstDomain)
+        ? firstDomain : null;
+      const sharedSource = sharedDomain ? sources[0] : null;
       // Synthetic BlueprintCluster for the merged group
       virtualClusters.push({
         id: merge.id,
@@ -61,6 +70,12 @@ export function applyMerges(
         suggested_title: merge.label,
         functional_summary: `Merged: ${merge.sourceIds.length} clusters`,
         parent_cluster_id: null,
+        domain: sharedDomain,
+        domain_type: sharedSource?.domain_type ?? "UNCLASSIFIED",
+        domain_confidence: sharedDomain
+          ? Math.min(...sources.map((c) => c.domain_confidence ?? 0))
+          : 0,
+        domain_evidence: [],
       });
       // Aggregate file counts from all source clusters
       const totalFiles = merge.sourceIds.reduce(

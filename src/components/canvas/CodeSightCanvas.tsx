@@ -15,9 +15,11 @@ import {
   CLUSTER_COLORS, clamp, EDGE_TYPE_COLORS, DEFAULT_EDGE_FILTERS, type EdgeFilterOptions,
 } from "./useD3Layout";
 import { computeClusterRelationships } from "./useClusterRelationships";
+import { clusterDomainKey, formatDomainLabel, getDomainStyle, UNCLASSIFIED_DOMAIN_KEY } from "./domainStyles";
 import ClusterGroupNode from "./ClusterGroupNode";
 import FileCardNode from "./FileCardNode";
 import EdgeFilterPanel from "./EdgeFilterPanel";
+import DomainFilterPanel from "./DomainFilterPanel";
 import CodeViewerPanel from "./CodeViewerPanel";
 import { type EdgeDiffSelection } from "./EdgeDiffPanel";
 import {
@@ -25,7 +27,7 @@ import {
 } from "./useClusterMerges";
 import {
   Layers, FileCode, GitBranch, ArrowLeft, Info, Link2, Unlink,
-  ChevronRight, ChevronLeft, GitMerge, Sparkles, Check, X,
+  ChevronRight, ChevronLeft, GitMerge, Sparkles, Check, X, Tag,
 } from "lucide-react";
 
 const NODE_TYPES = { clusterGroup: ClusterGroupNode, fileCard: FileCardNode };
@@ -112,6 +114,9 @@ function InnerCanvas({
   // Edge type/count filters — keeps large, densely-connected codebases from
   // rendering hundreds of macro edges at once.
   const [edgeFilters, setEdgeFilters] = useState<EdgeFilterOptions>(DEFAULT_EDGE_FILTERS);
+  // Domain spotlight filter (empty = show all) + domain-based pill coloring.
+  const [selectedDomains, setSelectedDomains] = useState<Set<string>>(new Set());
+  const [colorByDomain, setColorByDomain]     = useState(false);
 
   // Merge persistence
   const { merges, addMerge, removeMerge } = useClusterMerges(orgId ?? "", projectId);
@@ -234,21 +239,27 @@ function InnerCanvas({
     return suggestMerges(levelEdges, visibleClusters);
   }, [showMergePanel, levelEdges, visibleClusters]);
 
+  // Domain key per visible (post-merge) cluster — drives spotlight filtering.
+  const domainKeyByClusterId = useMemo(
+    () => new Map(virtualClusters.map((c) => [c.id, clusterDomainKey(c)])),
+    [virtualClusters]
+  );
+
   // ---------------------------------------------------------------------------
   // Render the current level onto the canvas
   // ---------------------------------------------------------------------------
   const mergeById = useMemo(() => new Map(activeMerges.map((m) => [m.id, m])), [activeMerges]);
 
-  // Cluster-list NODE positions — deliberately does not depend on edges, so
-  // toggling the Edge Filters panel doesn't retrigger the d3 force simulation
-  // or re-fit the view (positions haven't changed, only which edges are drawn).
-  useEffect(() => {
-    if (viewMode !== "cluster-list") return;
+  // Cluster-list NODE positions — deliberately does not depend on edges or
+  // domain filters, so toggling either panel doesn't retrigger the d3 force
+  // simulation or re-fit the view (positions haven't changed, only styling).
+  const baseNodes = useMemo<Node[]>(() => {
+    if (viewMode !== "cluster-list") return [];
     const { nodes: pillNodes } = layoutClusterPills(virtualClusters, index, colorOffset, fileCountOverride);
 
     // Enrich nodes with merge/selection data
     const inMergedGroup = !!currentEntry.isMergedGroup;
-    const enriched = pillNodes.map((n) => {
+    return pillNodes.map((n) => {
       const cid = n.data.clusterId as string;
       const merge = mergeById.get(cid);
       return {
@@ -263,19 +274,50 @@ function InnerCanvas({
         },
       };
     });
+  }, [viewMode, virtualClusters, index, colorOffset, fileCountOverride, mergeById, selectedClusterIds, removeMerge, currentEntry.isMergedGroup]);
 
-    setNodes(enriched);
-    setConnectivity(null);
-    setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 60);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, virtualClusters, index, colorOffset, fileCountOverride, mergeById, selectedClusterIds, removeMerge, currentEntry.isMergedGroup, fitView, setNodes]);
-
-  // Cluster-list EDGES — split out so edge-filter/cap changes are just a cheap
-  // setEdges, not a full re-layout.
+  // Re-fit only when the layout itself changed, not on styling passes.
   useEffect(() => {
     if (viewMode !== "cluster-list") return;
-    setEdges(displayEdges);
-  }, [viewMode, displayEdges, setEdges]);
+    const t = setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 60);
+    return () => clearTimeout(t);
+  }, [viewMode, baseNodes, fitView]);
+
+  // Domain styling pass — recolors/dims the laid-out pills without touching
+  // positions (same trick as the edge-filter split below).
+  useEffect(() => {
+    if (viewMode !== "cluster-list") return;
+    const filterActive = selectedDomains.size > 0;
+    if (!filterActive && !colorByDomain) { setNodes(baseNodes); return; }
+    setNodes(baseNodes.map((n) => {
+      const domain = (n.data.domain as string | null) ?? null;
+      const key = domainKeyByClusterId.get(n.data.clusterId as string) ?? UNCLASSIFIED_DOMAIN_KEY;
+      const dimmed = filterActive && !selectedDomains.has(key);
+      const ds = colorByDomain ? getDomainStyle(domain) : null;
+      return {
+        ...n,
+        data: {
+          ...n.data,
+          dimmed,
+          ...(ds ? { colorBg: ds.pillBg, colorBorder: ds.pillBorder } : {}),
+        },
+      };
+    }));
+  }, [viewMode, baseNodes, selectedDomains, colorByDomain, domainKeyByClusterId, setNodes]);
+
+  // Cluster-list EDGES — split out so edge-filter/cap changes are just a cheap
+  // setEdges, not a full re-layout. Edges touching a domain-dimmed cluster fade
+  // with it so the spotlight reads cleanly.
+  useEffect(() => {
+    if (viewMode !== "cluster-list") return;
+    if (selectedDomains.size === 0) { setEdges(displayEdges); return; }
+    setEdges(displayEdges.map((e) => {
+      const inSpotlight =
+        selectedDomains.has(domainKeyByClusterId.get(e.source) ?? UNCLASSIFIED_DOMAIN_KEY) &&
+        selectedDomains.has(domainKeyByClusterId.get(e.target) ?? UNCLASSIFIED_DOMAIN_KEY);
+      return inSpotlight ? e : { ...e, style: { ...e.style, opacity: 0.06 } };
+    }));
+  }, [viewMode, displayEdges, selectedDomains, domainKeyByClusterId, setEdges]);
 
   // File-detail (structure/flow) — unchanged from before, just no longer shares
   // an effect with the cluster-list branch.
@@ -347,6 +389,7 @@ function InnerCanvas({
       setViewMode("cluster-list");
       setActiveLeaf(null);
       setFlowActive(false);
+      setSelectedDomains(new Set()); // domains differ per level — stale selection dims everything
       return;
     }
 
@@ -357,6 +400,7 @@ function InnerCanvas({
       setViewMode("cluster-list");
       setActiveLeaf(null);
       setFlowActive(false);
+      setSelectedDomains(new Set());
     } else {
       setActiveLeaf(clusterId);
       setViewMode("file-detail");
@@ -392,6 +436,7 @@ function InnerCanvas({
     setFlowActive(false);
     setConnectivity(null);
     setSelectedClusterIds(new Set());
+    setSelectedDomains(new Set());
     setShowMergePanel(false);
     setSelectedFileNode(null);
     onEdgeSelect?.(null);
@@ -554,6 +599,9 @@ function InnerCanvas({
                 <span className="flex items-center gap-1.5"><Layers size={11} className="text-indigo-400" />{virtualClusters.length} clusters</span>
                 <span className="flex items-center gap-1.5"><FileCode size={11} className="text-emerald-400" />{meta.total_nodes_indexed} files</span>
                 <span className="flex items-center gap-1.5"><GitBranch size={11} className="text-zinc-500" />{meta.total_edges} edges</span>
+                {(meta.detected_domains?.length ?? 0) > 0 && (
+                  <span className="flex items-center gap-1.5"><Tag size={11} className="text-amber-400" />{meta.detected_domains!.length} domains</span>
+                )}
               </>
             )}
 
@@ -681,12 +729,23 @@ function InnerCanvas({
 
         {/* Edge type/count filters — keeps dense codebases from lagging under too many edges */}
         <Panel position="bottom-right">
-          <EdgeFilterPanel
-            filters={edgeFilters}
-            onChange={setEdgeFilters}
-            showOverviewControls={viewMode === "cluster-list"}
-            hiddenCount={hiddenEdgeCount}
-          />
+          <div className="flex flex-col items-end gap-1.5">
+            {viewMode === "cluster-list" && (
+              <DomainFilterPanel
+                clusters={virtualClusters}
+                selected={selectedDomains}
+                onSelectedChange={setSelectedDomains}
+                colorByDomain={colorByDomain}
+                onColorByDomainChange={setColorByDomain}
+              />
+            )}
+            <EdgeFilterPanel
+              filters={edgeFilters}
+              onChange={setEdgeFilters}
+              showOverviewControls={viewMode === "cluster-list"}
+              hiddenCount={hiddenEdgeCount}
+            />
+          </div>
         </Panel>
       </ReactFlow>
 
@@ -775,6 +834,22 @@ function InnerCanvas({
                               {childCount} sub-clusters
                             </span>
                           )}
+                          {cluster.domain && cluster.domain_type !== "UNCLASSIFIED" && (() => {
+                            const ds = getDomainStyle(cluster.domain);
+                            return (
+                              <span
+                                className="text-[8px] font-mono font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
+                                title={cluster.domain_evidence?.join("\n")}
+                                style={{
+                                  background: ds.badgeBg,
+                                  border:     `1px ${cluster.domain_type === "EMERGENT" ? "dashed" : "solid"} ${ds.badgeBorder}`,
+                                  color:      ds.badgeText,
+                                }}
+                              >
+                                {formatDomainLabel(cluster.domain)}
+                              </span>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>

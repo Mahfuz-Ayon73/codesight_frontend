@@ -35,8 +35,13 @@ export default function ProjectDangerZone({
       await deleteProjectAction(organizationId, projectId);
       const remaining = initialOrgProjectCount - 1;
       if (remaining > 0 || !isOrgOwner) {
+        // Stop the spinner before navigating — this component stays mounted until
+        // /projects streams in. No router.refresh(): it would re-render THIS
+        // now-deleted route (404) and race the push, and /projects is
+        // force-dynamic so the push fetches it fresh anyway.
+        setLoading(false);
+        setConfirm(false);
         router.push("/projects");
-        router.refresh();
       } else {
         setLoading(false);
         setConfirm(false);

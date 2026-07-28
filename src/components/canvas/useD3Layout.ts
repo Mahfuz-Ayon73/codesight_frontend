@@ -147,6 +147,10 @@ export function layoutClusterPills(
         colorBg:     color.bg,
         colorBorder: color.border,
         clusterId:   cluster.id,
+        domain:           cluster.domain ?? null,
+        domainType:       cluster.domain_type ?? "UNCLASSIFIED",
+        domainConfidence: cluster.domain_confidence ?? null,
+        domainEvidence:   cluster.domain_evidence ?? [],
       },
     };
   });
@@ -207,6 +211,10 @@ export function layoutFileDetail(
         summary: cluster.functional_summary,
         fileCount: members.length, colorBg: color.bg, colorBorder: color.border,
         clusterId: cluster.id, isBackground: true,
+        domain:           cluster.domain ?? null,
+        domainType:       cluster.domain_type ?? "UNCLASSIFIED",
+        domainConfidence: cluster.domain_confidence ?? null,
+        domainEvidence:   cluster.domain_evidence ?? [],
       },
     },
   ];
@@ -323,6 +331,10 @@ export function layoutFileFlow(
         summary: cluster.functional_summary,
         fileCount: members.length, colorBg: color.bg, colorBorder: color.border,
         clusterId: cluster.id, isBackground: true,
+        domain:           cluster.domain ?? null,
+        domainType:       cluster.domain_type ?? "UNCLASSIFIED",
+        domainConfidence: cluster.domain_confidence ?? null,
+        domainEvidence:   cluster.domain_evidence ?? [],
       },
     },
   ];
