@@ -90,6 +90,14 @@ function InnerCanvas({
   const [viewMode, setViewMode]       = useState<ViewMode>("cluster-list");
   const [activeLeaf, setActiveLeaf]   = useState<string | null>(null);
   const [flowActive, setFlowActive]   = useState(false);
+  const [showAllFlowEdges, setShowAllFlowEdges] = useState(true);
+  const [selectedFlowEntry, setSelectedFlowEntry] = useState<string | null>(null);
+
+  // Reset flow-trace selection whenever flow mode is toggled off or the leaf changes
+  useEffect(() => {
+    if (!flowActive) { setSelectedFlowEntry(null); setShowAllFlowEdges(true); }
+  }, [flowActive]);
+  useEffect(() => { setSelectedFlowEntry(null); }, [activeLeaf]);
   const [connectivity, setConnectivity] = useState<ReturnType<typeof computeClusterRelationships> | null>(null);
   // File node clicked in structure/flow view — opens the code preview panel.
   const [selectedFileNode, setSelectedFileNode] = useState<BlueprintNode | null>(null);
@@ -336,11 +344,52 @@ function InnerCanvas({
       const { nodes: fn, edges: fe } = layoutFileFlow(cluster, members, blueprint.edges, ci);
       const rel = computeClusterRelationships(activeLeaf, blueprint, edgeColor, true);
       setConnectivity(rel);
+
+      // Build reachable-node set from the selected entry (BFS over active edges)
+      const reachableFromEntry = new Set<string>();
+      if (!showAllFlowEdges && selectedFlowEntry) {
+        const memberSet = new Set(members.map((m) => m.id));
+        const activeEdges = blueprint.edges.filter(
+          (e) => memberSet.has(e.source) && memberSet.has(e.target) && !e.is_dead_import
+        );
+        const adjFwd = new Map<string, string[]>();
+        for (const e of activeEdges) {
+          const arr = adjFwd.get(e.source) ?? []; arr.push(e.target); adjFwd.set(e.source, arr);
+        }
+        const bfsQueue = [selectedFlowEntry];
+        reachableFromEntry.add(selectedFlowEntry);
+        while (bfsQueue.length) {
+          const cur = bfsQueue.shift()!;
+          for (const next of adjFwd.get(cur) ?? []) {
+            if (!reachableFromEntry.has(next)) { reachableFromEntry.add(next); bfsQueue.push(next); }
+          }
+        }
+      }
+
       setNodes(fn.map((n) => {
         const conn = rel.connectivity.get(n.id);
-        return !conn || n.type !== "fileCard" ? n : { ...n, data: { ...n.data, isFlowOrphan: conn.isFlowOrphan, edgeCount: conn.edgeCount, flowActive: true } };
+        const base = !conn || n.type !== "fileCard" ? n : {
+          ...n, data: { ...n.data, isFlowOrphan: conn.isFlowOrphan, edgeCount: conn.edgeCount, flowActive: true },
+        };
+        if (n.type !== "fileCard") return base;
+        const dimmed = !showAllFlowEdges && selectedFlowEntry && !reachableFromEntry.has(n.id);
+        return {
+          ...base,
+          data: {
+            ...base.data,
+            showAllEdges: showAllFlowEdges,
+            isSelectedEntry: n.id === selectedFlowEntry,
+            onSelectFlow: () => setSelectedFlowEntry((prev) => prev === n.id ? null : n.id),
+            ...(dimmed ? { isFlowOrphan: true } : {}),
+          },
+        };
       }));
-      setEdges(fe);
+
+      // Filter edges to only those on paths from selected entry when not showing all
+      const filteredEdges = (!showAllFlowEdges && selectedFlowEntry)
+        ? fe.filter((e) => reachableFromEntry.has(e.source) && reachableFromEntry.has(e.target))
+        : fe;
+      setEdges(filteredEdges);
     } else {
       const { nodes: dn, edges: de } = layoutFileDetail(cluster, members, blueprint.edges, ci);
       const rel = computeClusterRelationships(activeLeaf, blueprint, edgeColor, false);
@@ -354,7 +403,7 @@ function InnerCanvas({
     }
     setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 60);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, activeLeaf, flowActive, index, blueprint, colorOffset, fitView, setNodes, setEdges, onEdgeSelect]);
+  }, [viewMode, activeLeaf, flowActive, showAllFlowEdges, selectedFlowEntry, index, blueprint, colorOffset, fitView, setNodes, setEdges, onEdgeSelect]);
 
   // ---------------------------------------------------------------------------
   // Click handler
@@ -572,6 +621,31 @@ function InnerCanvas({
                     Flow
                   </button>
                 </div>
+
+                {/* Show-all-edges toggle — only visible in flow mode */}
+                {flowActive && (
+                  <label
+                    className="flex items-center gap-1.5 ml-1 cursor-pointer select-none"
+                    title="When unchecked, click 'trace flow' on any entry node to highlight its paths"
+                  >
+                    <div
+                      onClick={() => { setShowAllFlowEdges((v) => !v); setSelectedFlowEntry(null); }}
+                      className="w-3.5 h-3.5 rounded flex items-center justify-center transition-all"
+                      style={{
+                        background: showAllFlowEdges ? "rgba(6,182,212,0.8)" : "rgba(255,255,255,0.06)",
+                        border: `1px solid ${showAllFlowEdges ? "rgba(6,182,212,0.9)" : "rgba(255,255,255,0.15)"}`,
+                      }}
+                    >
+                      {showAllFlowEdges && (
+                        <svg width="7" height="5" viewBox="0 0 7 5" fill="none">
+                          <path d="M1 2.5L2.8 4.2L6 1" stroke="white" strokeWidth="1.4"
+                                strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-white/50">all edges</span>
+                  </label>
+                )}
 
                 {connectivity && (
                   <>
