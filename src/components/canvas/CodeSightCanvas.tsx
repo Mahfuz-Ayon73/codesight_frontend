@@ -25,9 +25,11 @@ import { type EdgeDiffSelection } from "./EdgeDiffPanel";
 import {
   useClusterMerges, applyMerges, suggestMerges, type ClusterMerge,
 } from "./useClusterMerges";
+import { exportCanvasAsPng, exportGraphAsDrawio } from "./exportGraph";
 import {
   Layers, FileCode, GitBranch, ArrowLeft, Info, Link2, Unlink,
   ChevronRight, ChevronLeft, GitMerge, Sparkles, Check, X, Tag,
+  Download, Image as ImageIcon,
 } from "lucide-react";
 
 const NODE_TYPES = { clusterGroup: ClusterGroupNode, fileCard: FileCardNode };
@@ -75,8 +77,9 @@ function InnerCanvas({
   orgId?: string;
   onEdgeSelect?: (selection: EdgeDiffSelection | null) => void;
 }) {
-  const { fitView } = useReactFlow();
+  const { fitView, getNodes, getEdges } = useReactFlow();
   const overridesRef = useRef<UserOverrides>(loadOverrides(projectId));
+  const canvasWrapperRef = useRef<HTMLDivElement>(null);
 
   // Pre-build the full cluster index once
   const index = useMemo(() => buildClusterIndex(blueprint), [blueprint]);
@@ -548,6 +551,29 @@ function InnerCanvas({
     [setEdges]
   );
 
+  // ---------------------------------------------------------------------------
+  // Export — current view only (whatever level/mode is on screen right now)
+  // ---------------------------------------------------------------------------
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportPng = useCallback(async () => {
+    const viewportEl = canvasWrapperRef.current?.querySelector(".react-flow__viewport") as HTMLElement | null;
+    if (!viewportEl) return;
+    setExporting(true);
+    try {
+      await exportCanvasAsPng(viewportEl, getNodes(), `codesight-${projectId}.png`);
+    } finally {
+      setExporting(false);
+      setExportOpen(false);
+    }
+  }, [getNodes, projectId]);
+
+  const handleExportDrawio = useCallback(() => {
+    exportGraphAsDrawio(getNodes(), getEdges(), `codesight-${projectId}.drawio`);
+    setExportOpen(false);
+  }, [getNodes, getEdges, projectId]);
+
   const meta           = blueprint.project_metadata;
   const isRoot         = navStack.length === 1 && viewMode === "cluster-list";
   const activeCluster  = activeLeaf ? index.clusterById.get(activeLeaf) : null;
@@ -556,7 +582,7 @@ function InnerCanvas({
 
   return (
     <div className="relative w-full h-full rounded-2xl overflow-hidden flex flex-col" style={{ background: "#080810" }}>
-      <div className="relative flex-1 min-h-0">
+      <div className="relative flex-1 min-h-0" ref={canvasWrapperRef}>
       <ReactFlow
         nodes={nodes} edges={edges}
         nodeTypes={NODE_TYPES}
@@ -696,9 +722,48 @@ function InnerCanvas({
           </div>
         </Panel>
 
-        {/* Top-right: hint + merge controls */}
+        {/* Top-right: export, hint + merge controls */}
         <Panel position="top-right">
           <div className="flex flex-col items-end gap-2">
+
+            {/* Export current view — PNG snapshot or editable draw.io XML */}
+            <div className="relative">
+              <button
+                onClick={() => setExportOpen((v) => !v)}
+                disabled={exporting}
+                title="Export the current view"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-semibold transition-all disabled:opacity-50"
+                style={{
+                  background:     exportOpen ? "rgba(99,102,241,0.20)" : "rgba(8,8,16,0.88)",
+                  border:         `1px solid ${exportOpen ? "rgba(99,102,241,0.45)" : "rgba(255,255,255,0.07)"}`,
+                  backdropFilter: "blur(14px)",
+                  color:          exportOpen ? "rgba(165,180,252,0.95)" : "rgba(255,255,255,0.40)",
+                }}
+              >
+                <Download size={9} />
+                {exporting ? "Exporting…" : "Export"}
+              </button>
+
+              {exportOpen && (
+                <div
+                  className="absolute top-full mt-1.5 right-0 flex flex-col gap-0.5 py-1.5 rounded-xl min-w-[172px] z-50"
+                  style={{ background: "rgba(8,8,16,0.96)", border: "1px solid rgba(255,255,255,0.08)", backdropFilter: "blur(14px)" }}
+                >
+                  <button
+                    onClick={handleExportPng}
+                    className="flex items-center gap-2 px-3 py-1.5 text-[10px] text-white/70 hover:bg-white/5 hover:text-white transition-colors text-left"
+                  >
+                    <ImageIcon size={11} className="text-emerald-400" /> PNG image
+                  </button>
+                  <button
+                    onClick={handleExportDrawio}
+                    className="flex items-center gap-2 px-3 py-1.5 text-[10px] text-white/70 hover:bg-white/5 hover:text-white transition-colors text-left"
+                  >
+                    <FileCode size={11} className="text-indigo-400" /> draw.io XML
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Merge-selected prompt */}
             {pendingMergeName !== null && (

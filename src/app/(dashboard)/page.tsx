@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { organizationService } from "@/services/organization/organization.service";
 import { projectService } from "@/services/project/project.service";
-import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
+import { AUTH_TOKEN_COOKIE, CURRENT_ORG_COOKIE } from "@/utils/cookie";
 import { Building2, ArrowRight } from "lucide-react";
 import type { Blueprint, Project } from "@/types/project/project.schema";
 import DashboardGraphPreview from "@/components/project/DashboardGraphPreview";
@@ -22,13 +22,23 @@ export default async function WorkspacePage({ searchParams }: Props) {
 
   const organizations = await organizationService.list(token).catch(() => []);
   const hasOrgs = organizations.length > 0;
-  const ownedOrgId = organizations.find((o) => o.myRole === "OWNER")?.id;
 
-  // Collect all projects across all orgs
+  // Scope the workspace to whichever org the switcher last selected. If
+  // nothing's been selected yet (or that org was left/deleted since), fall
+  // back to looking across all orgs, same as before.
+  const currentOrgId = cookieStore.get(CURRENT_ORG_COOKIE)?.value;
+  const currentOrg = organizations.find((o) => o.id === currentOrgId);
+  const scopedOrgs = currentOrg ? [currentOrg] : organizations;
+
+  const ownedOrgId = currentOrg?.myRole === "OWNER"
+    ? currentOrg.id
+    : organizations.find((o) => o.myRole === "OWNER")?.id;
+
+  // Collect projects for the scoped org(s)
   const allProjects: (Project & { orgName: string })[] = hasOrgs
     ? (
         await Promise.all(
-          organizations.map(async (org) => {
+          scopedOrgs.map(async (org) => {
             const projects = await projectService.list(token, org.id).catch(() => []);
             return projects.map((p) => ({ ...p, orgName: org.name }));
           })
@@ -63,7 +73,11 @@ export default async function WorkspacePage({ searchParams }: Props) {
       <div>
         <h1 className="text-2xl font-bold text-zinc-900">My Workspace</h1>
         <p className="mt-1 text-sm text-zinc-500">
-          {requestedProject ? `Viewing ${requestedProject.name}.` : "Your last active project at a glance."}
+          {requestedProject
+            ? `Viewing ${requestedProject.name}.`
+            : currentOrg
+            ? `Your last active project in ${currentOrg.name}.`
+            : "Your last active project at a glance."}
         </p>
       </div>
 
@@ -87,18 +101,14 @@ export default async function WorkspacePage({ searchParams }: Props) {
       ) : !targetProject ? (
         /* Has org but no projects (or, if only a member elsewhere, no assigned project yet) */
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white py-16 text-center px-6">
-          <p className="text-base font-semibold text-zinc-700">No projects yet</p>
-          <p className="mt-2 mb-6 text-sm text-zinc-400">
+          <p className="text-base font-semibold text-zinc-700">
+            {currentOrg ? `No projects yet in ${currentOrg.name}` : "No projects yet"}
+          </p>
+          <p className="mt-2 text-sm text-zinc-400">
             {ownedOrgId
-              ? "Create a project to start analyzing your codebase."
+              ? "Use the Create Project button in the sidebar to start analyzing your code."
               : "You haven't been added to a project yet. Create your own organization to start one."}
           </p>
-          <Link
-            href={ownedOrgId ? `/organizations/${ownedOrgId}/projects/new` : "/onboarding/create-organization"}
-            className="flex items-center gap-2 rounded-lg bg-cyan-500 px-5 py-2 text-sm font-medium text-white hover:bg-cyan-600 transition"
-          >
-            {ownedOrgId ? "Create project" : "Create organization"}
-          </Link>
         </div>
       ) : (
         <>

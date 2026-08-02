@@ -4,7 +4,7 @@ import Link from "next/link";
 import { organizationService } from "@/services/organization/organization.service";
 import { projectService } from "@/services/project/project.service";
 import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
-import { Clock, FolderOpen, Plus, Info, ArrowUpRight } from "lucide-react";
+import { Building2, Clock, FolderOpen, Plus, Info, ArrowUpRight } from "lucide-react";
 
 // Data is user/session-scoped; never let the client Router Cache reuse a
 // render from a different account.
@@ -16,6 +16,7 @@ export default async function ProjectsPage() {
   if (!token) redirect("/login");
 
   const organizations = await organizationService.list(token).catch(() => []);
+  const hasOrgs = organizations.length > 0;
   const ownedOrgId = organizations.find((o) => o.myRole === "OWNER")?.id;
 
   const allProjects = (
@@ -40,7 +41,24 @@ export default async function ProjectsPage() {
         </div>
       </div>
 
-      {allProjects.length === 0 ? (
+      {!hasOrgs ? (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white py-16 text-center px-6">
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-500">
+            <Building2 size={22} />
+          </div>
+          <p className="text-base font-semibold text-zinc-800">You need to create an organization first</p>
+          <p className="mt-2 mb-6 max-w-xs text-sm text-zinc-400">
+            Projects live inside organizations. Create one to start adding projects.
+          </p>
+          <Link
+            href="/onboarding/create-organization"
+            className="flex items-center gap-2 rounded-lg bg-cyan-500 px-5 py-2 text-sm font-medium text-white hover:bg-cyan-600 transition"
+          >
+            <Plus size={15} />
+            Create organization
+          </Link>
+        </div>
+      ) : allProjects.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white py-16 text-center px-6">
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-400">
             <FolderOpen size={22} />
@@ -57,15 +75,7 @@ export default async function ProjectsPage() {
               <Plus size={15} />
               Create project
             </Link>
-          ) : (
-            <Link
-              href="/onboarding/create-organization"
-              className="flex items-center gap-2 rounded-lg bg-cyan-500 px-5 py-2 text-sm font-medium text-white hover:bg-cyan-600 transition"
-            >
-              <Plus size={15} />
-              Create organization first
-            </Link>
-          )}
+          ) : null}
         </div>
       ) : (
         <div className="flex flex-col divide-y divide-zinc-100 rounded-2xl border border-zinc-200 bg-white overflow-hidden">

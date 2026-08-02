@@ -7,7 +7,7 @@ import ProjectMembersPanel from "@/components/project/ProjectMembersPanel";
 import UploadCodebase from "@/components/project/UploadCodebase";
 import AnalysisView from "@/components/project/AnalysisView";
 import CodebaseActions from "@/components/project/CodebaseActions";
-import { GitBranch, FolderArchive, Folder } from "lucide-react";
+import { GitBranch, FolderArchive } from "lucide-react";
 
 type Props = { params: Promise<{ organizationId: string; projectId: string }> };
 
@@ -72,7 +72,6 @@ export default async function ProjectPage({ params }: Props) {
   const sourceIcon = {
     GITHUB: <GitBranch size={13} />,
     LOCAL_ZIP: <FolderArchive size={13} />,
-    LOCAL_FOLDER: <Folder size={13} />,
   }[project.sourceType];
 
   return (

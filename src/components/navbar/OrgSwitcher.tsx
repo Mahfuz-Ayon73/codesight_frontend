@@ -1,21 +1,26 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
-import { useOrganizations } from "@/hooks/Organization/Organization.hooks";
-import { useRouter, usePathname } from "next/navigation";
+import { useOrganizations, useCurrentOrgId } from "@/hooks/Organization/Organization.hooks";
+import { useRouter } from "next/navigation";
+import { CURRENT_ORG_COOKIE, setCookie } from "@/utils/cookie";
 
 export default function OrgSwitcher() {
   const { organizations, loading } = useOrganizations();
   const router = useRouter();
-  const pathname = usePathname();
-
-  // Extract current org from URL if present
-  const match = pathname.match(/\/organizations\/([^/]+)/);
-  const currentOrgId = match?.[1];
+  const currentOrgId = useCurrentOrgId();
   const currentOrg = organizations.find((o) => o.id === currentOrgId) ?? organizations[0];
 
   function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    router.push(`/organizations/${e.target.value}/projects`);
+    // Persist immediately (rather than waiting on useCurrentOrgId's own
+    // effect) so the workspace page's cookie read on the very next
+    // navigation sees the newly selected org, not the previous one.
+    setCookie(CURRENT_ORG_COOKIE, e.target.value);
+    router.push("/");
+    // If we're already on "/" (switching orgs from the workspace itself),
+    // push() alone is a same-URL no-op and the Server Component won't
+    // re-read the cookie — force it to refetch with the new org.
+    router.refresh();
   }
 
   if (loading || organizations.length === 0) {

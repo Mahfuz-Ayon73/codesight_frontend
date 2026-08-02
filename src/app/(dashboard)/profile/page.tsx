@@ -1,12 +1,16 @@
 import { redirect } from "next/navigation";
 import { getProfileAction } from "@/actions/user.action";
+import { listOrganizationsAction } from "@/actions/organization.action";
 import ChangePasswordForm from "@/components/Profile/ChangePasswordForm";
+import ProfileOrganizationSection from "@/components/Organization/ProfileOrganizationSection";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProfilePage() {
   const user = await getProfileAction().catch(() => null);
   if (!user) redirect("/login");
+
+  const organizations = await listOrganizationsAction().catch(() => []);
 
   const initial = (user.username?.[0] ?? user.firstName?.[0] ?? "U").toUpperCase();
 
@@ -27,6 +31,18 @@ export default async function ProfilePage() {
           </p>
           <p className="text-sm text-zinc-500 truncate">@{user.username}</p>
           <p className="text-sm text-zinc-400 truncate">{user.email}</p>
+        </div>
+      </div>
+
+      <div>
+        <h2 className="text-lg font-semibold text-zinc-900">Organization</h2>
+        <p className="mt-1 text-sm text-zinc-500">
+          {organizations.length > 0
+            ? "Organizations you belong to. Only owners can delete an organization."
+            : "You don't belong to an organization yet."}
+        </p>
+        <div className="mt-4">
+          <ProfileOrganizationSection organizations={organizations} />
         </div>
       </div>
 

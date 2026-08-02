@@ -5,7 +5,7 @@ import { organizationService } from "@/services/organization/organization.servic
 import { projectService } from "@/services/project/project.service";
 import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
 import { ApiError } from "@/lib/exception";
-import { Clock, FolderOpen, Plus, Info, ArrowUpRight } from "lucide-react";
+import { Clock, FolderOpen, Info, ArrowUpRight } from "lucide-react";
 import type { Project } from "@/types/project/project.schema";
 
 // Data is user/session-scoped (which projects are visible depends on who's
@@ -56,15 +56,6 @@ export default async function OrgProjectsPage({ params }: Props) {
             {orgName ? `${projects.length} project${projects.length !== 1 ? "s" : ""} in ${orgName}` : "Loading…"}
           </p>
         </div>
-        {isOwner && (
-          <Link
-            href={`/organizations/${organizationId}/projects/new`}
-            className="flex items-center gap-2 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-600 transition"
-          >
-            <Plus size={15} />
-            Create project
-          </Link>
-        )}
       </div>
 
       {projects.length === 0 ? (
@@ -75,18 +66,9 @@ export default async function OrgProjectsPage({ params }: Props) {
           <p className="text-base font-semibold text-zinc-700">No projects yet</p>
           <p className="mt-2 mb-6 max-w-xs text-sm text-zinc-400">
             {isOwner
-              ? "Create a project inside this organization to start analyzing your code."
+              ? "Use the Create Project button in the sidebar to start analyzing your code."
               : "You haven't been added to a project in this organization yet."}
           </p>
-          {isOwner && (
-            <Link
-              href={`/organizations/${organizationId}/projects/new`}
-              className="flex items-center gap-2 rounded-lg bg-cyan-500 px-5 py-2 text-sm font-medium text-white hover:bg-cyan-600 transition"
-            >
-              <Plus size={15} />
-              Create project
-            </Link>
-          )}
         </div>
       ) : (
         <div className="flex flex-col divide-y divide-zinc-100 rounded-2xl border border-zinc-200 bg-white overflow-hidden">

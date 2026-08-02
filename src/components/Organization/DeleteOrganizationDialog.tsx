@@ -4,15 +4,24 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, X } from "lucide-react";
 import { deleteOrganizationAction } from "@/actions/organization.action";
+import { CURRENT_ORG_COOKIE, deleteCookie, getCookie } from "@/utils/cookie";
 
 type Props = {
   organizationId: string;
   organizationName: string;
   open: boolean;
   onClose: () => void;
+  /** Where to navigate after a successful delete. Pass `null` to stay on the current page and just refresh it. Defaults to "/projects". */
+  redirectTo?: string | null;
 };
 
-export default function DeleteOrganizationDialog({ organizationId, organizationName, open, onClose }: Props) {
+export default function DeleteOrganizationDialog({
+  organizationId,
+  organizationName,
+  open,
+  onClose,
+  redirectTo = "/projects",
+}: Props) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -22,7 +31,9 @@ export default function DeleteOrganizationDialog({ organizationId, organizationN
     setError(null);
     try {
       await deleteOrganizationAction(organizationId);
-      router.push("/projects");
+      // Otherwise the switcher/sidebar keep pointing at this now-deleted org.
+      if (getCookie(CURRENT_ORG_COOKIE) === organizationId) deleteCookie(CURRENT_ORG_COOKIE);
+      if (redirectTo) router.push(redirectTo);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete organization");

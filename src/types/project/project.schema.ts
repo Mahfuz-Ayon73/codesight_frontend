@@ -6,7 +6,7 @@ export type AnalysisStatus =
   | "COMPLETED"
   | "FAILED";
 
-export type ProjectSourceType = "LOCAL_ZIP" | "LOCAL_FOLDER" | "GITHUB";
+export type ProjectSourceType = "LOCAL_ZIP" | "GITHUB";
 
 export type ProjectMemberRole = "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
 
