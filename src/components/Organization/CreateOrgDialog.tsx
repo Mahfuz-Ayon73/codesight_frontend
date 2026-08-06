@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Building2, X } from "lucide-react";
 import { createOrganizationAction } from "@/actions/organization.action";
+import { setLastOrganizationAction } from "@/actions/user.action";
+import { setCurrentOrganization } from "@/utils/cookie";
 import InputField from "@/components/InputField/InputField";
 import Button from "@/components/Button/Button";
 
@@ -19,8 +21,12 @@ export default function CreateOrgDialog() {
     const name = String(new FormData(e.currentTarget).get("name"));
     try {
       const org = await createOrganizationAction({ name });
+      setCurrentOrganization(org.id);
+      // Awaited, not fire-and-forget, and no router.refresh() either: an
+      // in-flight request resolving against this route while router.push()
+      // is mid-flight has bounced the app back here.
+      await setLastOrganizationAction(org.id).catch(() => {});
       router.push(`/organizations/${org.id}/projects`);
-      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create organization");
     } finally {
@@ -35,7 +41,7 @@ export default function CreateOrgDialog() {
         <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-500">
           <Building2 size={26} />
         </div>
-        <p className="text-base font-semibold text-zinc-800">You don't have an organization yet</p>
+        <p className="text-base font-semibold text-zinc-800">You don&apos;t have an organization yet</p>
         <p className="mt-1 mb-6 max-w-sm text-sm text-zinc-400">
           An organization is a container for all your projects. Create one to get started — you can always create more or be invited to others later.
         </p>

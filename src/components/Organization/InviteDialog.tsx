@@ -2,10 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { UserPlus, X, CheckCircle } from "lucide-react";
-import { useOrganizations } from "@/hooks/Organization/Organization.hooks";
 import { listProjectsAction } from "@/actions/project.action";
 import { inviteToOrganizationAction } from "@/actions/organization.action";
-import type { OrganizationMemberRole } from "@/types/organization/organization.schema";
+import type { Organization, OrganizationMemberRole } from "@/types/organization/organization.schema";
 import type { Project } from "@/types/project/project.schema";
 import InputField from "@/components/InputField/InputField";
 import Button from "@/components/Button/Button";
@@ -15,10 +14,10 @@ const ROLES: OrganizationMemberRole[] = ["ADMIN", "MEMBER"];
 type Props = {
   open: boolean;
   onClose: () => void;
+  organizations: Organization[];
 };
 
-export default function InviteDialog({ open, onClose }: Props) {
-  const { organizations } = useOrganizations();
+export default function InviteDialog({ open, onClose, organizations }: Props) {
   const [orgId, setOrgId] = useState("");
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);

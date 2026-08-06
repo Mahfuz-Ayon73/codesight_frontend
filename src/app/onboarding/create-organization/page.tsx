@@ -5,21 +5,11 @@ export default async function OnboardingCreateOrgPage() {
   const user = await getProfileAction().catch(() => null);
   const firstName = user?.firstName ?? "My";
 
+  // No step indicator: creating an organization is the whole flow now, and
+  // project creation happens later from the org's own Projects page.
   return (
     <div className="w-full max-w-md">
-      {/* Step indicator */}
-      <div className="flex items-center gap-2 mb-8">
-        <StepDot active />
-        <div className="h-px flex-1 bg-zinc-200" />
-        <StepDot />
-      </div>
       <CreateOrgForm firstName={firstName} />
     </div>
-  );
-}
-
-function StepDot({ active }: { active?: boolean }) {
-  return (
-    <div className={`h-2.5 w-2.5 rounded-full ${active ? "bg-cyan-500" : "bg-zinc-200"}`} />
   );
 }

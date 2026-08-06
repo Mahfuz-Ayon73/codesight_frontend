@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { acceptInvitationAction } from "@/actions/invitation.action";
+import { setLastOrganizationAction } from "@/actions/user.action";
+import { setCurrentOrganization } from "@/utils/cookie";
 import Button from "@/components/Button/Button";
 
 type Props = {
@@ -19,9 +21,17 @@ export default function AcceptInvitationButton({ token, organizationId }: Props)
     setLoading(true);
     setError(null);
     try {
-      await acceptInvitationAction(token);
-      router.push(`/organizations/${organizationId}/projects`);
-      router.refresh();
+      const invitation = await acceptInvitationAction(token);
+      const destination = invitation.projectId
+        ? `/organizations/${organizationId}/projects/${invitation.projectId}`
+        : `/organizations/${organizationId}/projects`;
+      // Make the newly-joined org "current". Awaited deliberately: left
+      // fire-and-forget, this request resolves against the invitation route
+      // while router.push() is mid-flight and the app lands back here — with
+      // the invitation already consumed, so retrying reports it as invalid.
+      setCurrentOrganization(organizationId);
+      await setLastOrganizationAction(organizationId).catch(() => {});
+      router.push(destination);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to accept invitation");
       setLoading(false);

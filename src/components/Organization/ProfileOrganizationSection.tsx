@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Building2, Trash2 } from "lucide-react";
+import { Building2, LogOut, Trash2 } from "lucide-react";
 import DeleteOrganizationDialog from "@/components/Organization/DeleteOrganizationDialog";
+import LeaveOrganizationDialog from "@/components/Organization/LeaveOrganizationDialog";
 import CreateOrgDialog from "@/components/Organization/CreateOrgDialog";
 import type { Organization } from "@/types/organization/organization.schema";
 
@@ -12,6 +13,7 @@ type Props = {
 
 export default function ProfileOrganizationSection({ organizations }: Props) {
   const [deleteTarget, setDeleteTarget] = useState<Organization | null>(null);
+  const [leaveTarget, setLeaveTarget] = useState<Organization | null>(null);
 
   if (organizations.length === 0) {
     return <CreateOrgDialog />;
@@ -36,13 +38,21 @@ export default function ProfileOrganizationSection({ organizations }: Props) {
               <p className="mt-0.5 text-xs text-zinc-400">{org.myRole.charAt(0) + org.myRole.slice(1).toLowerCase()}</p>
             )}
           </div>
-          {org.myRole === "OWNER" && (
+          {org.myRole === "OWNER" ? (
             <button
               onClick={() => setDeleteTarget(org)}
               className="flex shrink-0 items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 transition"
             >
               <Trash2 size={13} />
               Delete
+            </button>
+          ) : (
+            <button
+              onClick={() => setLeaveTarget(org)}
+              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-500 hover:bg-zinc-50 transition"
+            >
+              <LogOut size={13} />
+              Leave
             </button>
           )}
         </div>
@@ -55,6 +65,15 @@ export default function ProfileOrganizationSection({ organizations }: Props) {
           open={!!deleteTarget}
           onClose={() => setDeleteTarget(null)}
           redirectTo={null}
+        />
+      )}
+
+      {leaveTarget && (
+        <LeaveOrganizationDialog
+          organizationId={leaveTarget.id}
+          organizationName={leaveTarget.name}
+          open={!!leaveTarget}
+          onClose={() => setLeaveTarget(null)}
         />
       )}
     </div>

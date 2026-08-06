@@ -1,172 +1,46 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import Link from "next/link";
-import { organizationService } from "@/services/organization/organization.service";
-import { projectService } from "@/services/project/project.service";
-import { AUTH_TOKEN_COOKIE, CURRENT_ORG_COOKIE } from "@/utils/cookie";
-import { Building2, ArrowRight } from "lucide-react";
-import type { Blueprint, Project } from "@/types/project/project.schema";
-import DashboardGraphPreview from "@/components/project/DashboardGraphPreview";
+import { AUTH_TOKEN_COOKIE, SKIPPED_ORG_SETUP_COOKIE } from "@/utils/cookie";
+import { resolveDefaultOrganization } from "./_lib/resolveDefaultOrganization";
+import NoOrganizationNotice from "@/components/Organization/NoOrganizationNotice";
 
 // Data is user/session-scoped; never let the client Router Cache reuse a
 // render from a different account.
 export const dynamic = "force-dynamic";
 
-type Props = { searchParams: Promise<{ projectId?: string }> };
-
-export default async function WorkspacePage({ searchParams }: Props) {
-  const { projectId: requestedProjectId } = await searchParams;
+// "/" is not itself a workspace — it just resolves which organization the
+// user should land in (last switched, else their first) and hands off to
+// that org's own workspace at /organizations/{id}, so every real page in
+// the app stays scoped to a single organization. The one case it renders
+// anything itself is when the user has no organization *and* has already
+// declined to create one.
+export default async function RootRedirectPage() {
   const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_TOKEN_COOKIE)?.value;
   if (!token) redirect("/login");
 
-  const organizations = await organizationService.list(token).catch(() => []);
-  const hasOrgs = organizations.length > 0;
+  const org = await resolveDefaultOrganization(token);
+  if (org) redirect(`/organizations/${org.id}`);
 
-  // Scope the workspace to whichever org the switcher last selected. If
-  // nothing's been selected yet (or that org was left/deleted since), fall
-  // back to looking across all orgs, same as before.
-  const currentOrgId = cookieStore.get(CURRENT_ORG_COOKIE)?.value;
-  const currentOrg = organizations.find((o) => o.id === currentOrgId);
-  const scopedOrgs = currentOrg ? [currentOrg] : organizations;
-
-  const ownedOrgId = currentOrg?.myRole === "OWNER"
-    ? currentOrg.id
-    : organizations.find((o) => o.myRole === "OWNER")?.id;
-
-  // Collect projects for the scoped org(s)
-  const allProjects: (Project & { orgName: string })[] = hasOrgs
-    ? (
-        await Promise.all(
-          scopedOrgs.map(async (org) => {
-            const projects = await projectService.list(token, org.id).catch(() => []);
-            return projects.map((p) => ({ ...p, orgName: org.name }));
-          })
-        )
-      ).flat()
-    : [];
-
-  // Last active = most recently uploaded, fallback to most recently created
-  const lastProject = allProjects.sort((a, b) => {
-    const ta = a.uploadedAt ?? a.createdAt ?? "";
-    const tb = b.uploadedAt ?? b.createdAt ?? "";
-    return tb.localeCompare(ta);
-  })[0] ?? null;
-
-  // "Open in workspace" links here with a specific project — show that one instead
-  // of whichever project was last active.
-  const requestedProject = requestedProjectId
-    ? allProjects.find((p) => p.id === requestedProjectId) ?? null
-    : null;
-  const targetProject = requestedProject ?? lastProject;
-
-  const hasAnalysis = targetProject?.analysisStatus === "COMPLETED";
-
-  const blueprint: Blueprint | null = hasAnalysis && targetProject
-    ? await projectService
-        .getBlueprint(token, targetProject.organizationId, targetProject.id)
-        .catch(() => null)
-    : null;
+  // Nothing to open. Handing off to the create-organization flow is right for
+  // someone who hasn't seen it — but not for someone who just pressed "Skip
+  // for now" there, since "/" is where that skip lands: it bounced them
+  // straight back into the form they dismissed, with no way out. So render a
+  // dead-end empty state instead and let them choose, exactly like
+  // OrgAccessNotice does.
+  if (!cookieStore.get(SKIPPED_ORG_SETUP_COOKIE)?.value) {
+    redirect("/onboarding/create-organization");
+  }
 
   return (
-    <div className="max-w-5xl mx-auto flex flex-col gap-6">
-      <div>
+    <div className="max-w-4xl mx-auto">
+      <div className="mb-6">
         <h1 className="text-2xl font-bold text-zinc-900">My Workspace</h1>
         <p className="mt-1 text-sm text-zinc-500">
-          {requestedProject
-            ? `Viewing ${requestedProject.name}.`
-            : currentOrg
-            ? `Your last active project in ${currentOrg.name}.`
-            : "Your last active project at a glance."}
+          Projects, analyses and teammates all live inside an organization.
         </p>
       </div>
-
-      {!hasOrgs ? (
-        /* No org */
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white py-16 text-center px-6">
-          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-500">
-            <Building2 size={22} />
-          </div>
-          <p className="text-base font-semibold text-zinc-800">No organization yet</p>
-          <p className="mt-2 mb-6 max-w-sm text-sm text-zinc-400">
-            An organization is required to manage your projects. Create one to get started.
-          </p>
-          <Link
-            href="/onboarding/create-organization"
-            className="flex items-center gap-2 rounded-lg bg-cyan-500 px-5 py-2 text-sm font-medium text-white hover:bg-cyan-600 transition"
-          >
-            Create organization
-          </Link>
-        </div>
-      ) : !targetProject ? (
-        /* Has org but no projects (or, if only a member elsewhere, no assigned project yet) */
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white py-16 text-center px-6">
-          <p className="text-base font-semibold text-zinc-700">
-            {currentOrg ? `No projects yet in ${currentOrg.name}` : "No projects yet"}
-          </p>
-          <p className="mt-2 text-sm text-zinc-400">
-            {ownedOrgId
-              ? "Use the Create Project button in the sidebar to start analyzing your code."
-              : "You haven't been added to a project yet. Create your own organization to start one."}
-          </p>
-        </div>
-      ) : (
-        <>
-          {/* Project header */}
-          <div className="flex flex-col gap-0.5">
-            <h2 className="text-lg font-semibold text-zinc-900">{targetProject.name}</h2>
-            <p className="text-xs text-zinc-400">
-              Last modified{" "}
-              {formatDate(targetProject.updatedAt ?? targetProject.uploadedAt ?? targetProject.createdAt)}
-            </p>
-            {targetProject.description && (
-              <p className="text-sm text-zinc-500 mt-1">{targetProject.description}</p>
-            )}
-          </div>
-
-          {/* Graph / cluster map area */}
-          <div className="rounded-2xl border border-zinc-200 bg-white overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100">
-              <div>
-                <p className="text-sm font-semibold text-zinc-800">Codebase Graph</p>
-                <p className="text-xs text-zinc-400">Cluster map of {targetProject.name}</p>
-              </div>
-            </div>
-
-            {hasAnalysis && blueprint ? (
-              <DashboardGraphPreview blueprint={blueprint} projectId={targetProject.id} orgId={targetProject.organizationId} />
-            ) : hasAnalysis && !blueprint ? (
-              <div className="flex items-center justify-center h-64 text-sm text-zinc-400">
-                Could not load graph data
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-64 text-center px-6">
-                <p className="text-sm font-medium text-zinc-600">No analysis available yet</p>
-                <p className="mt-1 text-xs text-zinc-400">
-                  {targetProject.analysisStatus === "PENDING_UPLOAD"
-                    ? "Upload your source code to start the analysis."
-                    : targetProject.analysisStatus === "FAILED"
-                    ? "The last analysis failed. Try re-uploading your code."
-                    : "Analysis is in progress — check back soon."}
-                </p>
-                {targetProject.analysisStatus === "PENDING_UPLOAD" && (
-                  <Link
-                    href={`/organizations/${targetProject.organizationId}/projects/${targetProject.id}`}
-                    className="mt-4 flex items-center gap-1.5 rounded-lg bg-cyan-500 px-4 py-2 text-xs font-medium text-white hover:bg-cyan-600 transition"
-                  >
-                    Upload code <ArrowRight size={12} />
-                  </Link>
-                )}
-              </div>
-            )}
-          </div>
-        </>
-      )}
+      <NoOrganizationNotice />
     </div>
   );
-}
-
-function formatDate(iso: string | undefined) {
-  if (!iso) return "never";
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }

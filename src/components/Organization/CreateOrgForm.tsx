@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Building2, ArrowRight, ArrowLeft } from "lucide-react";
 import { createOrganizationAction } from "@/actions/organization.action";
+import { setLastOrganizationAction } from "@/actions/user.action";
+import { setCurrentOrganization } from "@/utils/cookie";
 import Button from "@/components/Button/Button";
+import SkipOrgSetupLink from "@/components/Organization/SkipOrgSetupLink";
 
 // Generate a short 8-char hex suffix from a UUID
 function shortId() {
@@ -32,7 +34,14 @@ export default function CreateOrgForm({ firstName, skipHref = "/" }: Props) {
     setError(null);
     try {
       const org = await createOrganizationAction({ name: name.trim(), description });
-      router.push(`/onboarding/create-project?orgId=${org.id}`);
+      setCurrentOrganization(org.id);
+      // Awaited, not fire-and-forget: an in-flight request resolving against
+      // this route while router.push() is mid-flight has bounced the app
+      // back here.
+      await setLastOrganizationAction(org.id).catch(() => {});
+      // Straight into the new org. Creating a project is no longer part of
+      // this flow — it's done from the org's own Projects page.
+      router.push(`/organizations/${org.id}/projects`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create organization");
     } finally {
@@ -56,7 +65,7 @@ export default function CreateOrgForm({ firstName, skipHref = "/" }: Props) {
         </div>
         <div>
           <h1 className="text-lg font-semibold text-zinc-900">Create your organization</h1>
-          <p className="text-xs text-zinc-400">Step 1 of 2 — Groups all your projects together.</p>
+          <p className="text-xs text-zinc-400">Groups all your projects together.</p>
         </div>
       </div>
 
@@ -94,12 +103,10 @@ export default function CreateOrgForm({ firstName, skipHref = "/" }: Props) {
           {loading ? "Creating…" : <><span>Continue</span><ArrowRight size={15} /></>}
         </Button>
 
-        <Link
+        <SkipOrgSetupLink
           href={skipHref}
           className="text-center text-sm font-medium text-zinc-400 hover:text-zinc-600 transition"
-        >
-          Skip for now
-        </Link>
+        />
       </form>
     </div>
   );

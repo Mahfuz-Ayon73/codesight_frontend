@@ -7,6 +7,7 @@ import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
 import { ApiError } from "@/lib/exception";
 import { Clock, FolderOpen, Info, ArrowUpRight } from "lucide-react";
 import type { Project } from "@/types/project/project.schema";
+import OrgAccessNotice from "@/components/Organization/OrgAccessNotice";
 
 // Data is user/session-scoped (which projects are visible depends on who's
 // logged in); never let the client Router Cache reuse a render from a
@@ -40,9 +41,7 @@ export default async function OrgProjectsPage({ params }: Props) {
   if (loadError) {
     return (
       <div className="max-w-4xl mx-auto">
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
-          {loadError}
-        </div>
+        <OrgAccessNotice organizationId={organizationId} message={loadError} />
       </div>
     );
   }
@@ -97,7 +96,7 @@ export default async function OrgProjectsPage({ params }: Props) {
                   Show details
                 </Link>
                 <Link
-                  href={`/?projectId=${project.id}`}
+                  href={`/organizations/${organizationId}?projectId=${project.id}`}
                   className="flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-cyan-600 transition"
                 >
                   Open in workspace

@@ -7,6 +7,7 @@ import ProjectMembersPanel from "@/components/project/ProjectMembersPanel";
 import UploadCodebase from "@/components/project/UploadCodebase";
 import AnalysisView from "@/components/project/AnalysisView";
 import CodebaseActions from "@/components/project/CodebaseActions";
+import OrgAccessNotice from "@/components/Organization/OrgAccessNotice";
 import { GitBranch, FolderArchive } from "lucide-react";
 
 type Props = { params: Promise<{ organizationId: string; projectId: string }> };
@@ -33,10 +34,10 @@ export default async function ProjectPage({ params }: Props) {
       if (e.status === 404) {
         return (
           <div className="max-w-4xl mx-auto w-full">
-            <h1 className="text-2xl font-semibold text-zinc-900">Project not found</h1>
-            <p className="mt-2 text-sm text-zinc-600">
-              This project doesn&apos;t exist in this organization, or you don&apos;t have access to it.
-            </p>
+            <OrgAccessNotice
+              organizationId={organizationId}
+              message="This project doesn't exist in this organization, or you don't have access to it."
+            />
           </div>
         );
       }
@@ -49,11 +50,7 @@ export default async function ProjectPage({ params }: Props) {
   if (loadError) {
     return (
       <div className="max-w-4xl mx-auto w-full">
-        <h1 className="text-2xl font-semibold text-zinc-900">Couldn&apos;t load project</h1>
-        <p className="mt-2 text-sm text-red-600">{loadError}</p>
-        <p className="mt-1 text-xs text-zinc-500">
-          org={organizationId} project={projectId}
-        </p>
+        <OrgAccessNotice organizationId={organizationId} message={loadError} />
       </div>
     );
   }
@@ -61,7 +58,7 @@ export default async function ProjectPage({ params }: Props) {
   if (!project) {
     return (
       <div className="max-w-4xl mx-auto w-full">
-        <h1 className="text-2xl font-semibold text-zinc-900">Project not found</h1>
+        <OrgAccessNotice organizationId={organizationId} message="Project not found." />
       </div>
     );
   }

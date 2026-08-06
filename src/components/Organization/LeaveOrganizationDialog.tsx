@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AlertTriangle, X } from "lucide-react";
-import { deleteOrganizationAction, listOrganizationsAction } from "@/actions/organization.action";
+import { leaveOrganizationAction, listOrganizationsAction } from "@/actions/organization.action";
 import { CURRENT_ORG_COOKIE, deleteCookie, getCookie } from "@/utils/cookie";
 import { nextOrgDestination } from "@/utils/organization";
 
@@ -12,52 +12,38 @@ type Props = {
   organizationName: string;
   open: boolean;
   onClose: () => void;
-  /** Where to navigate after a successful delete. Pass `null` to stay on the current page and just refresh it — unless this was the org you were in, in which case the next org is resolved for you. */
-  redirectTo?: string | null;
 };
 
-export default function DeleteOrganizationDialog({
-  organizationId,
-  organizationName,
-  open,
-  onClose,
-  redirectTo = null,
-}: Props) {
+export default function LeaveOrganizationDialog({ organizationId, organizationName, open, onClose }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function handleDelete() {
+  async function handleLeave() {
     setLoading(true);
     setError(null);
     try {
-      await deleteOrganizationAction(organizationId);
-      // Otherwise the switcher/sidebar keep pointing at this now-deleted org.
+      await leaveOrganizationAction(organizationId);
       const wasCurrent =
         getCookie(CURRENT_ORG_COOKIE) === organizationId ||
         pathname.startsWith(`/organizations/${organizationId}`);
       if (wasCurrent) deleteCookie(CURRENT_ORG_COOKIE);
-      // Close explicitly — when staying on the current page, refresh() alone
-      // won't unmount this client component, so it'd otherwise sit open
-      // forever showing a stale "Deleting…" state.
       onClose();
-      if (redirectTo) {
-        router.push(redirectTo);
-      } else if (wasCurrent) {
-        // The org you were in is gone, so resolve where to go from the list as
-        // it stands *after* the delete and navigate straight there — your own
-        // org, else any org you're still in, else the create-organization
-        // flow. Deliberately not "/" or "/projects": those re-resolve the
-        // target server-side, which raced this delete and bounced the app
-        // between routes.
+      if (wasCurrent) {
+        // This used to push to "/", which re-resolves a destination on the
+        // server — and that resolve, racing the page you were just removed
+        // from, is what bounced the app between routes. Resolve the target
+        // here instead, from the membership list as it stands *after* the
+        // leave, and navigate straight to it: your own org, else any org
+        // you're still in, else the create-organization flow.
         const remaining = await listOrganizationsAction().catch(() => []);
         router.push(nextOrgDestination(remaining));
       } else {
         router.refresh();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete organization");
+      setError(err instanceof Error ? err.message : "Failed to leave organization");
       setLoading(false);
     }
   }
@@ -80,13 +66,13 @@ export default function DeleteOrganizationDialog({
             <AlertTriangle size={20} />
           </div>
           <div>
-            <h2 className="text-base font-semibold text-zinc-900">Delete organization</h2>
-            <p className="text-xs text-zinc-400">This cannot be undone.</p>
+            <h2 className="text-base font-semibold text-zinc-900">Leave organization</h2>
+            <p className="text-xs text-zinc-400">You&apos;ll lose access immediately.</p>
           </div>
         </div>
 
         <p className="text-sm text-zinc-600">
-          Are you sure you want to permanently delete <span className="font-medium text-zinc-800">{organizationName}</span>? All members will lose access.
+          Are you sure you want to leave <span className="font-medium text-zinc-800">{organizationName}</span>? You&apos;ll need a new invitation to rejoin.
         </p>
 
         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
@@ -102,11 +88,11 @@ export default function DeleteOrganizationDialog({
           </button>
           <button
             type="button"
-            onClick={handleDelete}
+            onClick={handleLeave}
             disabled={loading}
             className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 transition disabled:opacity-60"
           >
-            {loading ? "Deleting…" : "Delete organization"}
+            {loading ? "Leaving…" : "Leave organization"}
           </button>
         </div>
       </div>

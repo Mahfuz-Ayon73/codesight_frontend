@@ -9,6 +9,7 @@ import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
 import { ArrowUpRight, Users, Building2, UserCircle } from "lucide-react";
 import EditableDescription from "@/components/project/EditableDescription";
 import ProjectDangerZone from "@/components/project/ProjectDangerZone";
+import OrgAccessNotice from "@/components/Organization/OrgAccessNotice";
 
 type Props = { params: Promise<{ organizationId: string; projectId: string }> };
 
@@ -34,10 +35,10 @@ export default async function ProjectDetailsPage({ params }: Props) {
     if (e instanceof ApiError && e.status === 404) {
       return (
         <div className="max-w-2xl mx-auto w-full">
-          <h1 className="text-2xl font-semibold text-zinc-900">Project not found</h1>
-          <p className="mt-2 text-sm text-zinc-600">
-            This project doesn&apos;t exist in this organization, or you don&apos;t have access to it.
-          </p>
+          <OrgAccessNotice
+            organizationId={organizationId}
+            message="This project doesn't exist in this organization, or you don't have access to it."
+          />
         </div>
       );
     }
@@ -47,8 +48,10 @@ export default async function ProjectDetailsPage({ params }: Props) {
   if (loadError || !data) {
     return (
       <div className="max-w-2xl mx-auto w-full">
-        <h1 className="text-2xl font-semibold text-zinc-900">Couldn&apos;t load project details</h1>
-        <p className="mt-2 text-sm text-red-600">{loadError}</p>
+        <OrgAccessNotice
+          organizationId={organizationId}
+          message={loadError ?? "Couldn't load project details"}
+        />
       </div>
     );
   }
@@ -78,7 +81,7 @@ export default async function ProjectDetailsPage({ params }: Props) {
             <h1 className="text-2xl font-bold text-zinc-900">{project.name}</h1>
           </div>
           <Link
-            href={`/?projectId=${projectId}`}
+            href={`/organizations/${organizationId}?projectId=${projectId}`}
             className="flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-cyan-600 transition shrink-0"
           >
             Open in workspace

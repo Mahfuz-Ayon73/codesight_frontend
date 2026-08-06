@@ -1,5 +1,5 @@
-import Link from "next/link";
 import OrganizationCreateForm from "@/components/Organization/OrganizationCreateForm";
+import SkipOrgSetupLink from "@/components/Organization/SkipOrgSetupLink";
 
 export default function CreateOrganizationPage() {
   return (
@@ -11,9 +11,7 @@ export default function CreateOrganizationPage() {
       <OrganizationCreateForm />
       <p className="mt-4 text-sm text-zinc-400">
         Want to do this later?{" "}
-        <Link href="/" className="text-cyan-600 underline underline-offset-2">
-          Skip for now
-        </Link>
+        <SkipOrgSetupLink className="text-cyan-600 underline underline-offset-2" />
       </p>
     </div>
   );

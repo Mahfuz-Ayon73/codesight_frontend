@@ -31,6 +31,11 @@ export const organizationService = {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     }),
+  leave: (token: string, id: string) =>
+    apiFetch<void>(`/api/v1/organizations/${id}/members/me`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }),
   inviteMember: (token: string, id: string, data: CreateInvitationInput) =>
     apiFetch<Invitation>(`/api/v1/organizations/${id}/invitations`, {
       method: "POST",

@@ -86,7 +86,7 @@ export default function AnalysisView({ organizationId, projectId, initialStatus 
   }
 
   function handleGetResults() {
-    router.push(`/?projectId=${projectId}`);
+    router.push(`/organizations/${organizationId}?projectId=${projectId}`);
   }
 
   // --- Ready for analysis ---
