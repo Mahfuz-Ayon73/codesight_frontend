@@ -8,12 +8,25 @@ export const EDGE_TYPE_COLORS = {
   RENDERS:             "rgba(6,182,212,0.85)",
   BELONGS_TO_DOMAIN:   "rgba(99,102,241,0.85)",
   SEMANTIC_SIMILARITY: "rgba(16,185,129,0.85)",
+  CALLS_API:           "rgba(244,114,182,0.85)",
+  EMITS_EVENT:         "rgba(251,146,60,0.85)",
+  PROVIDES_STATE:      "rgba(168,85,247,0.85)",
 } as const;
+
+// Runtime links the import graph cannot express — a shared URL, an event
+// name, or a context provider feeding its consumers. They carry weight 0.0
+// and are drawn dashed so an inferred hop never reads as a certain one.
+export const INFERRED_EDGE_TYPES: ReadonlySet<string> = new Set([
+  "CALLS_API", "EMITS_EVENT", "PROVIDES_STATE", "SEMANTIC_SIMILARITY",
+]);
 
 export interface EdgeFilterOptions {
   showRenders:            boolean;
   showBelongsToDomain:    boolean;
   showSemanticSimilarity: boolean;
+  showCallsApi:           boolean;
+  showEmitsEvent:         boolean;
+  showProvidesState:      boolean;
   showDeadImports:        boolean;
   overviewMaxEdges:       number;
 }
@@ -22,6 +35,9 @@ export const DEFAULT_EDGE_FILTERS: EdgeFilterOptions = {
   showRenders:            true,
   showBelongsToDomain:    true,
   showSemanticSimilarity: false,
+  showCallsApi:           true,
+  showEmitsEvent:         true,
+  showProvidesState:      true,
   showDeadImports:        false,
   overviewMaxEdges:       40,
 };
@@ -390,6 +406,13 @@ export function layoutFileFlow(
       label = e.binding.length > 32 ? e.binding.substring(0, 29) + "…" : e.binding;
     }
 
+    // Contract edges keep their own colour so an inferred HTTP/event hop is
+    // never mistaken for an import. Their called_names already carry the URL
+    // or event name, which becomes the edge label above.
+    const inferred  = INFERRED_EDGE_TYPES.has(e.type);
+    const typeColor = EDGE_TYPE_COLORS[e.type as keyof typeof EDGE_TYPE_COLORS];
+    const stroke    = inferred && typeColor ? typeColor : "rgba(6,182,212,0.9)";
+
     return {
       id: `flow-${e.source}-${e.target}`, source: e.source, target: e.target,
       animated: true,
@@ -398,8 +421,11 @@ export function layoutFileFlow(
       type: sameLayer ? "default" : "smoothstep",
       // Same-layer source/target handles on the top so the arc goes upward
       ...(sameLayer ? { sourceHandle: null, targetHandle: null } : {}),
-      style: { stroke: "rgba(6,182,212,0.9)", strokeWidth: 2 },
-      markerEnd: { type: "arrowclosed" as const, width: 16, height: 16, color: "rgba(6,182,212,0.9)" },
+      style: {
+        stroke, strokeWidth: 2,
+        ...(inferred ? { strokeDasharray: "6 4" } : {}),
+      },
+      markerEnd: { type: "arrowclosed" as const, width: 16, height: 16, color: stroke },
       label,
       labelStyle: { fill: "#67e8f9", fontSize: 10, fontWeight: 700, fontFamily: "monospace" },
       labelBgStyle: { fill: "rgba(8,20,30,0.95)", stroke: "rgba(6,182,212,0.4)", strokeWidth: 1 },

@@ -99,6 +99,13 @@ export interface BlueprintCluster {
   domain_evidence?: string[];
 }
 
+export interface JourneyCoverage {
+  reached: number;
+  total: number;
+  unreached_count: number;
+  unreached_sample: string[];
+}
+
 export interface BlueprintMetadata {
   detected_paradigm: string;
   total_nodes_indexed: number;
@@ -106,12 +113,41 @@ export interface BlueprintMetadata {
   total_clusters: number;
   max_cluster_size?: number;
   detected_domains?: string[];
+  journey_coverage?: JourneyCoverage;
+}
+
+/**
+ * A place a user actually lands, as opposed to `execution_role: "ENTRY_POINT"`
+ * which only means "nothing imports me". `is_landing` marks the suggested
+ * starting point for its auth state — the login screen when signed out, the
+ * shallowest guarded route when signed in.
+ */
+export interface BlueprintEntryPoint {
+  file: string;
+  url: string | null;
+  kind: "page" | "api" | "server";
+  auth_state: "public" | "protected";
+  confidence: number;
+  evidence: string[];
+  /** Layouts wrapping this screen, outermost first, ending with the file itself. */
+  render_chain?: string[];
+  cluster_id: string | null;
+  domain: string | null;
+  /** Files reachable from the whole render chain — the size of the tour. */
+  reach_count: number;
+  /** Files reachable from this file alone; used for ranking, since every
+   *  page shares the root layout's subtree. */
+  own_reach_count?: number;
+  reach_ratio: number;
+  is_landing: boolean;
 }
 
 export interface Blueprint {
   schema_version: string;
   project_id: string;
   project_metadata: BlueprintMetadata;
+  /** Absent on blueprints produced before journey detection existed. */
+  entry_points?: BlueprintEntryPoint[];
   clusters: BlueprintCluster[];
   nodes: BlueprintNode[];
   edges: BlueprintEdge[];

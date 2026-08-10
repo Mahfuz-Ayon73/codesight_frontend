@@ -12,7 +12,8 @@ import "@xyflow/react/dist/style.css";
 import type { Blueprint, BlueprintNode } from "@/types/project/project.schema";
 import {
   buildClusterIndex, layoutClusterPills, layoutFileDetail, layoutFileFlow,
-  CLUSTER_COLORS, clamp, EDGE_TYPE_COLORS, DEFAULT_EDGE_FILTERS, type EdgeFilterOptions,
+  CLUSTER_COLORS, clamp, EDGE_TYPE_COLORS, INFERRED_EDGE_TYPES,
+  DEFAULT_EDGE_FILTERS, type EdgeFilterOptions,
 } from "./useD3Layout";
 import { computeClusterRelationships } from "./useClusterRelationships";
 import { clusterDomainKey, formatDomainLabel, getDomainStyle, UNCLASSIFIED_DOMAIN_KEY } from "./domainStyles";
@@ -29,7 +30,7 @@ import { exportCanvasAsPng, exportGraphAsDrawio } from "./exportGraph";
 import {
   Layers, FileCode, GitBranch, ArrowLeft, Info, Link2, Unlink,
   ChevronRight, ChevronLeft, GitMerge, Sparkles, Check, X, Tag,
-  Download, Image as ImageIcon,
+  Download, Image as ImageIcon, Play,
 } from "lucide-react";
 
 const NODE_TYPES = { clusterGroup: ClusterGroupNode, fileCard: FileCardNode };
@@ -70,12 +71,13 @@ interface NavEntry {
 // Inner canvas
 // ---------------------------------------------------------------------------
 function InnerCanvas({
-  blueprint, projectId, orgId, onEdgeSelect,
+  blueprint, projectId, orgId, onEdgeSelect, onStartTour,
 }: {
   blueprint: Blueprint;
   projectId: string;
   orgId?: string;
   onEdgeSelect?: (selection: EdgeDiffSelection | null) => void;
+  onStartTour?: () => void;
 }) {
   const { fitView, getNodes, getEdges } = useReactFlow();
   const overridesRef = useRef<UserOverrides>(loadOverrides(projectId));
@@ -169,6 +171,9 @@ function InnerCanvas({
       if (type === "RENDERS") return edgeFilters.showRenders;
       if (type === "BELONGS_TO_DOMAIN") return edgeFilters.showBelongsToDomain;
       if (type === "SEMANTIC_SIMILARITY") return edgeFilters.showSemanticSimilarity;
+      if (type === "CALLS_API") return edgeFilters.showCallsApi;
+      if (type === "EMITS_EVENT") return edgeFilters.showEmitsEvent;
+      if (type === "PROVIDES_STATE") return edgeFilters.showProvidesState;
       return true;
     };
 
@@ -199,7 +204,12 @@ function InnerCanvas({
       const color = EDGE_TYPE_COLORS[dominantType as keyof typeof EDGE_TYPE_COLORS] ?? "rgba(99,102,241,0.45)";
       result.push({
         id: `macro-${sc}-${tc}`, source: sc, target: tc, animated: false,
-        style: { stroke: color, strokeWidth: clamp(weight * 0.15, 1.5, 6) },
+        style: {
+          stroke: color,
+          strokeWidth: clamp(weight * 0.15, 1.5, 6),
+          // Inferred links are dashed so a guessed connection never reads as a fact.
+          ...(INFERRED_EDGE_TYPES.has(dominantType) ? { strokeDasharray: "6 4" } : {}),
+        },
         data: { weight, isMacro: true, dominantType },
       });
     }
@@ -726,6 +736,25 @@ function InnerCanvas({
         <Panel position="top-right">
           <div className="flex flex-col items-end gap-2">
 
+            {/* Guided walkthrough. Lives in this stack rather than floating at
+                top-left, where it sat on top of the breadcrumb's Back button. */}
+            {onStartTour && (
+              <button
+                onClick={onStartTour}
+                title="Walk the codebase from its entry point"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-semibold transition-all"
+                style={{
+                  background:     "rgba(99,102,241,0.85)",
+                  border:         "1px solid rgba(129,140,248,0.55)",
+                  backdropFilter: "blur(14px)",
+                  color:          "#fff",
+                }}
+              >
+                <Play size={9} />
+                Start tour
+              </button>
+            )}
+
             {/* Export current view — PNG snapshot or editable draw.io XML */}
             <div className="relative">
               <button
@@ -1015,12 +1044,14 @@ function InnerCanvas({
 // Public export
 // ---------------------------------------------------------------------------
 export default function CodeSightCanvas({
-  blueprint, projectId, orgId, onEdgeSelect,
+  blueprint, projectId, orgId, onEdgeSelect, onStartTour,
 }: {
   blueprint: Blueprint;
   projectId: string;
   orgId?: string;
   onEdgeSelect?: (selection: EdgeDiffSelection | null) => void;
+  /** Omit to hide the Start-tour control (e.g. analyses with no entry points). */
+  onStartTour?: () => void;
 }) {
   const [ready, setReady] = useState(false);
 
@@ -1044,7 +1075,7 @@ export default function CodeSightCanvas({
     <ReactFlowProvider>
       <InnerCanvas
         blueprint={blueprint} projectId={projectId} orgId={orgId}
-        onEdgeSelect={onEdgeSelect}
+        onEdgeSelect={onEdgeSelect} onStartTour={onStartTour}
       />
     </ReactFlowProvider>
   );
