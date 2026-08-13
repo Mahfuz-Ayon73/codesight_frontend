@@ -173,6 +173,15 @@ export interface SnapshotSummary {
   snapshotId: string;
 }
 
+// Cluster name/summary override — a team member's manual replacement of the
+// LLM-suggested label, keyed by the snapshot it was made against.
+export interface ClusterOverride {
+  clusterId: string;
+  overrideTitle: string | null;
+  overrideSummary: string | null;
+  version: number;
+}
+
 export interface GraphDelta {
   added_nodes: string[];
   removed_nodes: string[];

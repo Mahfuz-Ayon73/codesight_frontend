@@ -28,10 +28,12 @@ export default function DashboardGraphPreview({
   blueprint,
   projectId,
   orgId,
+  canEditClusters,
 }: {
   blueprint: Blueprint;
   projectId: string;
   orgId?: string;
+  canEditClusters?: boolean;
 }) {
   const [edgeSelection, setEdgeSelection] = useState<EdgeDiffSelection | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
@@ -54,6 +56,7 @@ export default function DashboardGraphPreview({
             // Rendered inside the canvas's own top-right control stack so it
             // aligns with Export instead of overlapping the breadcrumb.
             onStartTour={hasTour ? () => setTourOpen(true) : undefined}
+            canEditClusters={canEditClusters}
           />
         )}
       </div>

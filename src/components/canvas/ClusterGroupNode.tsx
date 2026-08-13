@@ -1,8 +1,8 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Layers, ChevronRight, X } from "lucide-react";
+import { Layers, ChevronRight, X, Pencil } from "lucide-react";
 import { getDomainStyle, formatDomainLabel } from "./domainStyles";
 
 interface ClusterGroupData {
@@ -24,6 +24,9 @@ interface ClusterGroupData {
   domainEvidence?:   string[];
   /** True when a domain spotlight filter is active and this cluster doesn't match. */
   dimmed?:         boolean;
+  /** ADMIN/OWNER only — enables double-click-to-rename on the title label. */
+  canEditTitle?:   boolean;
+  onSaveTitle?:    (clusterId: string, title: string) => void;
   [key: string]: unknown;
 }
 
@@ -56,6 +59,23 @@ function DomainBadge({ d }: { d: ClusterGroupData }) {
 
 function ClusterGroupNode({ data, selected }: NodeProps) {
   const d = data as ClusterGroupData;
+
+  // Rename-in-place state — hooks must run unconditionally, before the
+  // isBackground early return below. draft is only read while isEditing, so
+  // it's seeded fresh from the live label at the moment editing starts rather
+  // than kept in sync via an effect.
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(d.label);
+
+  function commitTitle() {
+    setIsEditing(false);
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== d.label) {
+      d.onSaveTitle?.(d.clusterId, trimmed);
+    } else {
+      setDraft(d.label);
+    }
+  }
 
   // Background stage node inside detail view — no interaction chrome
   if (d.isBackground) {
@@ -170,12 +190,54 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
         )}
         {!d.hideName && (
           <div className="min-w-0">
-            <p
-              className="text-[11px] font-semibold leading-tight truncate max-w-[150px]"
-              style={{ color: d.colorBorder.replace("0.50", "0.95") }}
-            >
-              {d.label}
-            </p>
+            {isEditing ? (
+              <input
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onBlur={commitTitle}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); commitTitle(); }
+                  if (e.key === "Escape") { setDraft(d.label); setIsEditing(false); }
+                }}
+                className="text-[11px] font-semibold leading-tight bg-transparent outline-none border-b truncate max-w-[150px]"
+                style={{
+                  color: d.colorBorder.replace("0.50", "0.95"),
+                  borderColor: d.colorBorder,
+                  pointerEvents: "auto",
+                }}
+              />
+            ) : (
+              <span className="flex items-center gap-1">
+                <p
+                  className="text-[11px] font-semibold leading-tight truncate max-w-[150px]"
+                  style={{
+                    color: d.colorBorder.replace("0.50", "0.95"),
+                    ...(d.canEditTitle ? { pointerEvents: "auto", cursor: "text" } : {}),
+                  }}
+                  title={d.canEditTitle ? "Double-click to rename" : undefined}
+                  onClick={d.canEditTitle ? (e) => e.stopPropagation() : undefined}
+                  onDoubleClick={d.canEditTitle ? (e) => { e.stopPropagation(); setDraft(d.label); setIsEditing(true); } : undefined}
+                >
+                  {d.label}
+                </p>
+                {/* Visible-on-hover rename affordance — makes the edit permission
+                    obvious instead of relying on a hidden double-click gesture. */}
+                {d.canEditTitle && (
+                  <button
+                    className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                    style={{ pointerEvents: "auto", color: d.colorBorder.replace("0.50", "0.75") }}
+                    title="Rename cluster"
+                    onClick={(e) => { e.stopPropagation(); setDraft(d.label); setIsEditing(true); }}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                  >
+                    <Pencil size={9} />
+                  </button>
+                )}
+              </span>
+            )}
             <p className="text-[9px] text-white/35 mt-0.5 truncate max-w-[150px]">
               {d.isMerged ? `${d.mergedCount ?? "?"} merged clusters` : `${d.fileCount} files`}
             </p>

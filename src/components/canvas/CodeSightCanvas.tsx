@@ -26,6 +26,7 @@ import { type EdgeDiffSelection } from "./EdgeDiffPanel";
 import {
   useClusterMerges, applyMerges, suggestMerges, type ClusterMerge,
 } from "./useClusterMerges";
+import { useClusterOverrides } from "./useClusterOverrides";
 import { exportCanvasAsPng, exportGraphAsDrawio } from "./exportGraph";
 import {
   Layers, FileCode, GitBranch, ArrowLeft, Info, Link2, Unlink,
@@ -71,13 +72,14 @@ interface NavEntry {
 // Inner canvas
 // ---------------------------------------------------------------------------
 function InnerCanvas({
-  blueprint, projectId, orgId, onEdgeSelect, onStartTour,
+  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters,
 }: {
   blueprint: Blueprint;
   projectId: string;
   orgId?: string;
   onEdgeSelect?: (selection: EdgeDiffSelection | null) => void;
   onStartTour?: () => void;
+  canEditClusters?: boolean;
 }) {
   const { fitView, getNodes, getEdges } = useReactFlow();
   const overridesRef = useRef<UserOverrides>(loadOverrides(projectId));
@@ -133,6 +135,9 @@ function InnerCanvas({
 
   // Merge persistence
   const { merges, addMerge, removeMerge } = useClusterMerges(orgId ?? "", projectId);
+  // Cluster name overrides — resolves the latest snapshot, loads any active
+  // renames, and exposes saveTitle for the double-click-to-rename UI below.
+  const { overrides, saveTitle: saveClusterTitle } = useClusterOverrides(orgId ?? "", projectId);
 
   // ---------------------------------------------------------------------------
   // Visible clusters — respects merged-group nav entries
@@ -283,19 +288,25 @@ function InnerCanvas({
     return pillNodes.map((n) => {
       const cid = n.data.clusterId as string;
       const merge = mergeById.get(cid);
+      // Merged/virtual clusters (synthetic ids, not real blueprint clusters)
+      // aren't renameable — there's no single clusterId to attach the override to.
+      const override = merge ? undefined : overrides.get(cid);
       return {
         ...n,
         data: {
           ...n.data,
+          label:       override?.overrideTitle ?? n.data.label,
           isMultiSelected: selectedClusterIds.has(cid),
           isMerged:    !!merge,
           mergedCount: merge?.sourceIds.length,
           onUnmerge:   merge ? removeMerge : undefined,
           hideName:    inMergedGroup,
+          canEditTitle: !merge && canEditClusters,
+          onSaveTitle:  !merge && canEditClusters ? saveClusterTitle : undefined,
         },
       };
     });
-  }, [viewMode, virtualClusters, index, colorOffset, fileCountOverride, mergeById, selectedClusterIds, removeMerge, currentEntry.isMergedGroup]);
+  }, [viewMode, virtualClusters, index, colorOffset, fileCountOverride, mergeById, selectedClusterIds, removeMerge, currentEntry.isMergedGroup, overrides, canEditClusters, saveClusterTitle]);
 
   // Re-fit only when the layout itself changed, not on styling passes.
   useEffect(() => {
@@ -1044,7 +1055,7 @@ function InnerCanvas({
 // Public export
 // ---------------------------------------------------------------------------
 export default function CodeSightCanvas({
-  blueprint, projectId, orgId, onEdgeSelect, onStartTour,
+  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters,
 }: {
   blueprint: Blueprint;
   projectId: string;
@@ -1052,6 +1063,8 @@ export default function CodeSightCanvas({
   onEdgeSelect?: (selection: EdgeDiffSelection | null) => void;
   /** Omit to hide the Start-tour control (e.g. analyses with no entry points). */
   onStartTour?: () => void;
+  /** ADMIN/OWNER only — enables double-click-to-rename on cluster pills. */
+  canEditClusters?: boolean;
 }) {
   const [ready, setReady] = useState(false);
 
@@ -1075,7 +1088,7 @@ export default function CodeSightCanvas({
     <ReactFlowProvider>
       <InnerCanvas
         blueprint={blueprint} projectId={projectId} orgId={orgId}
-        onEdgeSelect={onEdgeSelect} onStartTour={onStartTour}
+        onEdgeSelect={onEdgeSelect} onStartTour={onStartTour} canEditClusters={canEditClusters}
       />
     </ReactFlowProvider>
   );

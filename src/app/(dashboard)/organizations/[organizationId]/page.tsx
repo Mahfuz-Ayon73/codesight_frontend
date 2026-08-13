@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { organizationService } from "@/services/organization/organization.service";
 import { projectService } from "@/services/project/project.service";
+import { getProfileAction } from "@/actions/user.action";
 import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
 import { ApiError } from "@/lib/exception";
 import { ArrowRight } from "lucide-react";
@@ -66,11 +67,22 @@ export default async function OrgWorkspacePage({ params, searchParams }: Props) 
 
   const hasAnalysis = targetProject?.analysisStatus === "COMPLETED";
 
-  const blueprint: Blueprint | null = hasAnalysis && targetProject
-    ? await projectService
-        .getBlueprint(token, organizationId, targetProject.id)
-        .catch(() => null)
-    : null;
+  // Cluster rename (double-click on the canvas) is gated to ADMIN/OWNER —
+  // resolve the caller's role on this specific project alongside the blueprint
+  // fetch so we don't add a second round trip after the page has already loaded.
+  const [blueprint, canEditClusters]: [Blueprint | null, boolean] = hasAnalysis && targetProject
+    ? await Promise.all([
+        projectService.getBlueprint(token, organizationId, targetProject.id).catch(() => null),
+        Promise.all([
+          projectService.listMembers(token, organizationId, targetProject.id).catch(() => []),
+          getProfileAction().catch(() => null),
+        ]).then(([members, currentUser]) => {
+          if (!currentUser) return false;
+          const myRole = members.find((m) => m.userId === currentUser.id)?.role;
+          return myRole === "ADMIN" || myRole === "OWNER";
+        }),
+      ])
+    : [null, false];
 
   return (
     <div className="max-w-5xl mx-auto flex flex-col gap-6">
@@ -116,7 +128,10 @@ export default async function OrgWorkspacePage({ params, searchParams }: Props) 
             </div>
 
             {hasAnalysis && blueprint ? (
-              <DashboardGraphPreview blueprint={blueprint} projectId={targetProject.id} orgId={organizationId} />
+              <DashboardGraphPreview
+                blueprint={blueprint} projectId={targetProject.id} orgId={organizationId}
+                canEditClusters={canEditClusters}
+              />
             ) : hasAnalysis && !blueprint ? (
               <div className="flex items-center justify-center h-64 text-sm text-zinc-400">
                 Could not load graph data
