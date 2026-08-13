@@ -2,7 +2,7 @@
 
 import { memo, useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Layers, ChevronRight, X, Pencil } from "lucide-react";
+import { Layers, ChevronRight, X, Pencil, Info, Plus, Minus } from "lucide-react";
 import { getDomainStyle, formatDomainLabel } from "./domainStyles";
 
 interface ClusterGroupData {
@@ -27,7 +27,25 @@ interface ClusterGroupData {
   /** ADMIN/OWNER only — enables double-click-to-rename on the title label. */
   canEditTitle?:   boolean;
   onSaveTitle?:    (clusterId: string, title: string) => void;
+  /** Opens the summary detail panel. Omitted for synthetic (merged) clusters. */
+  onOpenSummary?:  (clusterId: string) => void;
+  /** Set when a commit diff overlay is active — aggregate change counts for this cluster's files. */
+  diffCounts?: { added: number; modified: number; deleted: number } | null;
   [key: string]: unknown;
+}
+
+const DIFF_BORDER_COLORS = {
+  added:    "rgba(52,211,153,0.85)",
+  modified: "rgba(251,191,36,0.85)",
+  deleted:  "rgba(248,113,113,0.85)",
+} as const;
+
+function dominantDiffColor(counts: { added: number; modified: number; deleted: number }): string | null {
+  const { added, modified, deleted } = counts;
+  if (added + modified + deleted === 0) return null;
+  if (added >= modified && added >= deleted) return DIFF_BORDER_COLORS.added;
+  if (modified >= deleted) return DIFF_BORDER_COLORS.modified;
+  return DIFF_BORDER_COLORS.deleted;
 }
 
 // Small colored chip naming the cluster's detected domain; tooltip carries
@@ -120,6 +138,8 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
 
   // Overview node — clickable pill card
   const isSelected = selected || d.isMultiSelected;
+  const diffCounts = d.diffCounts ?? null;
+  const diffColor  = diffCounts ? dominantDiffColor(diffCounts) : null;
   return (
     <div
       className="relative w-full h-full rounded-2xl transition-all duration-200 cursor-pointer group"
@@ -127,15 +147,17 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
         opacity:      d.dimmed ? 0.15 : 1,
         background:   d.colorBg,
         border:       d.isMerged
-          ? `1.5px dashed ${isSelected ? "rgba(255,255,255,0.6)" : d.colorBorder}`
-          : `1.5px solid ${isSelected ? "rgba(255,255,255,0.6)" : d.colorBorder}`,
+          ? `1.5px dashed ${diffColor ?? (isSelected ? "rgba(255,255,255,0.6)" : d.colorBorder)}`
+          : `1.5px solid ${diffColor ?? (isSelected ? "rgba(255,255,255,0.6)" : d.colorBorder)}`,
         backdropFilter: "blur(10px)",
         WebkitBackdropFilter: "blur(10px)",
-        boxShadow: d.isMultiSelected
-          ? `0 0 0 3px rgba(99,102,241,0.75), 0 8px 32px rgba(99,102,241,0.20)`
-          : isSelected
-            ? `0 0 0 3px ${d.colorBorder}, 0 8px 32px rgba(0,0,0,0.30)`
-            : `0 2px 16px rgba(0,0,0,0.18)`,
+        boxShadow: diffColor
+          ? `0 0 0 2px ${diffColor}, 0 8px 32px rgba(0,0,0,0.25)`
+          : d.isMultiSelected
+            ? `0 0 0 3px rgba(99,102,241,0.75), 0 8px 32px rgba(99,102,241,0.20)`
+            : isSelected
+              ? `0 0 0 3px ${d.colorBorder}, 0 8px 32px rgba(0,0,0,0.30)`
+              : `0 2px 16px rgba(0,0,0,0.18)`,
       }}
     >
       <Handle type="target" position={Position.Top}    style={{ opacity: 0 }} />
@@ -236,6 +258,17 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
                     <Pencil size={9} />
                   </button>
                 )}
+                {d.onOpenSummary && (
+                  <button
+                    className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                    style={{ pointerEvents: "auto", color: d.colorBorder.replace("0.50", "0.75") }}
+                    title="View cluster summary"
+                    onClick={(e) => { e.stopPropagation(); d.onOpenSummary?.(d.clusterId); }}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                  >
+                    <Info size={9} />
+                  </button>
+                )}
               </span>
             )}
             <p className="text-[9px] text-white/35 mt-0.5 truncate max-w-[150px]">
@@ -256,9 +289,23 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
         )}
       </div>
 
-      {/* Domain badge */}
-      <div className="absolute bottom-2.5 left-3 select-none">
+      {/* Domain badge + diff counts */}
+      <div className="absolute bottom-2.5 left-3 flex items-center gap-1.5 select-none">
         <DomainBadge d={d} />
+        {diffCounts && (diffCounts.added + diffCounts.modified + diffCounts.deleted > 0) && (
+          <span className="flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded-full"
+            style={{ background: "rgba(0,0,0,0.30)", color: "rgba(255,255,255,0.75)" }}>
+            {diffCounts.added > 0 && (
+              <span className="flex items-center gap-0.5 text-emerald-400"><Plus size={7} />{diffCounts.added}</span>
+            )}
+            {diffCounts.modified > 0 && (
+              <span className="text-amber-400">~{diffCounts.modified}</span>
+            )}
+            {diffCounts.deleted > 0 && (
+              <span className="flex items-center gap-0.5 text-red-400"><Minus size={7} />{diffCounts.deleted}</span>
+            )}
+          </span>
+        )}
       </div>
 
       {/* Click to open hint */}

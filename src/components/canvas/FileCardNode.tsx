@@ -2,7 +2,15 @@
 
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { FileCode, Crown, ArrowRight, ArrowLeft, Share2, Unlink } from "lucide-react";
+import { FileCode, Crown, ArrowRight, ArrowLeft, Share2, Unlink, Plus, Pencil, Minus, Move } from "lucide-react";
+import type { DiffStatus } from "@/types/project/project.schema";
+
+const DIFF_CONFIG: Record<DiffStatus, { color: string; bg: string; icon: React.ReactNode; label: string }> = {
+  added:    { color: "#34d399", bg: "rgba(16,185,129,0.15)", icon: <Plus size={8} />,   label: "added" },
+  modified: { color: "#fbbf24", bg: "rgba(245,158,11,0.15)", icon: <Pencil size={8} />, label: "modified" },
+  deleted:  { color: "#f87171", bg: "rgba(239,68,68,0.15)",  icon: <Minus size={8} />,  label: "deleted" },
+  moved:    { color: "#c084fc", bg: "rgba(168,85,247,0.15)", icon: <Move size={8} />,   label: "moved" },
+};
 
 interface FileCardData {
   id:                   number;
@@ -23,6 +31,8 @@ interface FileCardData {
   showAllEdges?:        boolean;   // when false, entry nodes show a "trace flow" pill
   isSelectedEntry?:     boolean;   // this entry is the currently traced flow source
   onSelectFlow?:        () => void;
+  /** Set when a commit diff overlay is active and this file changed in the selected commit. */
+  diffStatus?:          DiffStatus;
   [key: string]: unknown;
 }
 
@@ -61,6 +71,7 @@ function FileCardNode({ data, selected }: NodeProps) {
   const showAllEdges    = d.showAllEdges !== false;
   const isSelectedEntry = !!d.isSelectedEntry;
   const isOrphan        = flowActive ? d.isFlowOrphan : d.isOrphan;
+  const diff             = d.diffStatus ? DIFF_CONFIG[d.diffStatus] : null;
 
   // Show the "trace flow" pill above ENTRY_POINT nodes when showAllEdges is off
   const showEntrySelector =
@@ -98,27 +109,31 @@ function FileCardNode({ data, selected }: NodeProps) {
             ? isOrphan ? "rgba(10,10,15,0.4)" : "rgba(10,25,35,0.85)"
             : d.isOrphan ? "rgba(30,20,10,0.85)" : "rgba(15,15,25,0.82)",
           border: `1px solid ${
-            selected
-              ? flowActive ? "rgba(6,182,212,0.9)" : "rgba(99,102,241,0.8)"
-              : flowActive
-                ? isOrphan
-                  ? "rgba(255,255,255,0.03)"
-                  : isSelectedEntry
-                    ? "rgba(6,182,212,0.65)"
-                    : "rgba(6,182,212,0.3)"
-                : d.isOrphan
-                  ? "rgba(245,158,11,0.25)"
-                  : "rgba(255,255,255,0.08)"
+            diff
+              ? diff.color
+              : selected
+                ? flowActive ? "rgba(6,182,212,0.9)" : "rgba(99,102,241,0.8)"
+                : flowActive
+                  ? isOrphan
+                    ? "rgba(255,255,255,0.03)"
+                    : isSelectedEntry
+                      ? "rgba(6,182,212,0.65)"
+                      : "rgba(6,182,212,0.3)"
+                  : d.isOrphan
+                    ? "rgba(245,158,11,0.25)"
+                    : "rgba(255,255,255,0.08)"
           }`,
           backdropFilter: flowActive ? "none" : "blur(12px)",
           WebkitBackdropFilter: flowActive ? "none" : "blur(12px)",
-          boxShadow: isSelectedEntry
-            ? "0 0 0 1px rgba(6,182,212,0.4), 0 4px 24px rgba(6,182,212,0.15)"
-            : selected
-              ? flowActive
-                ? "0 0 0 2px rgba(6,182,212,0.3), 0 4px 20px rgba(0,0,0,0.4)"
-                : "0 0 0 2px rgba(99,102,241,0.3), 0 4px 20px rgba(0,0,0,0.4)"
-              : "0 2px 8px rgba(0,0,0,0.3)",
+          boxShadow: diff
+            ? `0 0 0 1px ${diff.color}, 0 4px 20px rgba(0,0,0,0.35)`
+            : isSelectedEntry
+              ? "0 0 0 1px rgba(6,182,212,0.4), 0 4px 24px rgba(6,182,212,0.15)"
+              : selected
+                ? flowActive
+                  ? "0 0 0 2px rgba(6,182,212,0.3), 0 4px 20px rgba(0,0,0,0.4)"
+                  : "0 0 0 2px rgba(99,102,241,0.3), 0 4px 20px rgba(0,0,0,0.4)"
+                : "0 2px 8px rgba(0,0,0,0.3)",
           opacity: flowActive ? (isOrphan ? 0.35 : 1) : d.isOrphan ? 0.75 : 1,
         }}
       >
@@ -166,6 +181,14 @@ function FileCardNode({ data, selected }: NodeProps) {
 
         {/* Badges */}
         <div className="px-3 pb-2 flex gap-1 flex-wrap">
+          {diff && (
+            <span
+              className="flex items-center gap-0.5 text-[9px] px-1.5 py-px rounded-full border font-medium"
+              style={{ background: diff.bg, color: diff.color, borderColor: diff.color }}
+            >
+              {diff.icon}{diff.label}
+            </span>
+          )}
           {role.label && (
             <span className={`flex items-center gap-0.5 text-[9px] px-1.5 py-px rounded-full border font-medium ${role.cls}`}>
               {role.icon}{role.label}
@@ -207,7 +230,7 @@ function FileCardNode({ data, selected }: NodeProps) {
         {/* Left accent bar */}
         <div
           className="absolute left-0 top-3 bottom-3 w-0.5 rounded-full"
-          style={{ background: flowActive ? (isOrphan ? "rgba(255,255,255,0.05)" : "#06b6d4") : d.clusterColor }}
+          style={{ background: diff ? diff.color : flowActive ? (isOrphan ? "rgba(255,255,255,0.05)" : "#06b6d4") : d.clusterColor }}
         />
       </div>
     </div>

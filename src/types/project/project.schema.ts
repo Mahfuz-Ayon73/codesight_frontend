@@ -171,6 +171,14 @@ export interface CommitDiff {
 export interface SnapshotSummary {
   commitSha: string;
   snapshotId: string;
+  /** Raw JSON string of a GraphDelta — parse with JSON.parse before use. Null until Phase 2 deep analysis runs. */
+  deltaJson?: string | null;
+}
+
+export interface CommitHistoryResponse {
+  projectId: string;
+  commits: CommitDiff[];
+  snapshots: SnapshotSummary[];
 }
 
 // Cluster name/summary override — a team member's manual replacement of the

@@ -41,9 +41,16 @@ export function useClusterOverrides(orgId: string, projectId: string) {
     return () => { cancelled = true; };
   }, [orgId, projectId]);
 
-  const saveTitle = useCallback(async (clusterId: string, title: string) => {
+  // Shared PUT logic for both the title (double-click on the pill) and the
+  // summary (detail panel) editors — same endpoint, same optimistic-lock
+  // handling, differing only in which field is being replaced.
+  const saveField = useCallback(async (
+    clusterId: string, field: "title" | "summary", value: string
+  ) => {
     if (!snapshotId) return;
     const existing = overrides.get(clusterId);
+    const nextTitle   = field === "title"   ? value : existing?.overrideTitle ?? null;
+    const nextSummary = field === "summary" ? value : existing?.overrideSummary ?? null;
 
     setSavingIds((prev) => new Set(prev).add(clusterId));
     setError(null);
@@ -56,35 +63,32 @@ export function useClusterOverrides(orgId: string, projectId: string) {
           body: JSON.stringify({
             snapshotId,
             clusterId,
-            overrideTitle: title,
-            overrideSummary: existing?.overrideSummary ?? null,
+            overrideTitle: nextTitle,
+            overrideSummary: nextSummary,
             expectedVersion: existing?.version ?? null,
           }),
         }
       );
 
       if (res.status === 409) {
-        setError("This cluster was renamed elsewhere — reload the page to see the latest name.");
+        setError(field === "title"
+          ? "This cluster was renamed elsewhere — reload the page to see the latest name."
+          : "This cluster's summary was edited elsewhere — reload the page to see the latest version.");
         return;
       }
       if (!res.ok) {
-        setError("Failed to save the new name.");
+        setError(field === "title" ? "Failed to save the new name." : "Failed to save the new summary.");
         return;
       }
 
       const saved: { version: number } = await res.json();
       setOverrides((prev) => {
         const next = new Map(prev);
-        next.set(clusterId, {
-          clusterId,
-          overrideTitle: title,
-          overrideSummary: existing?.overrideSummary ?? null,
-          version: saved.version,
-        });
+        next.set(clusterId, { clusterId, overrideTitle: nextTitle, overrideSummary: nextSummary, version: saved.version });
         return next;
       });
     } catch {
-      setError("Failed to save the new name.");
+      setError(field === "title" ? "Failed to save the new name." : "Failed to save the new summary.");
     } finally {
       setSavingIds((prev) => {
         const next = new Set(prev);
@@ -94,5 +98,8 @@ export function useClusterOverrides(orgId: string, projectId: string) {
     }
   }, [orgId, projectId, snapshotId, overrides]);
 
-  return { overrides, saveTitle, savingIds, error, snapshotReady: snapshotId !== null };
+  const saveTitle   = useCallback((clusterId: string, title: string)   => saveField(clusterId, "title", title),     [saveField]);
+  const saveSummary = useCallback((clusterId: string, summary: string) => saveField(clusterId, "summary", summary), [saveField]);
+
+  return { overrides, saveTitle, saveSummary, savingIds, error, snapshotReady: snapshotId !== null };
 }

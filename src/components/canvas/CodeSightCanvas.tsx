@@ -9,7 +9,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import type { Blueprint, BlueprintNode } from "@/types/project/project.schema";
+import type { Blueprint, BlueprintNode, DiffStatus } from "@/types/project/project.schema";
 import {
   buildClusterIndex, layoutClusterPills, layoutFileDetail, layoutFileFlow,
   CLUSTER_COLORS, clamp, EDGE_TYPE_COLORS, INFERRED_EDGE_TYPES,
@@ -22,6 +22,7 @@ import FileCardNode from "./FileCardNode";
 import EdgeFilterPanel from "./EdgeFilterPanel";
 import DomainFilterPanel from "./DomainFilterPanel";
 import CodeViewerPanel from "./CodeViewerPanel";
+import ClusterSummaryPanel from "./ClusterSummaryPanel";
 import { type EdgeDiffSelection } from "./EdgeDiffPanel";
 import {
   useClusterMerges, applyMerges, suggestMerges, type ClusterMerge,
@@ -72,7 +73,7 @@ interface NavEntry {
 // Inner canvas
 // ---------------------------------------------------------------------------
 function InnerCanvas({
-  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters,
+  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters, diffOverlay,
 }: {
   blueprint: Blueprint;
   projectId: string;
@@ -80,6 +81,8 @@ function InnerCanvas({
   onEdgeSelect?: (selection: EdgeDiffSelection | null) => void;
   onStartTour?: () => void;
   canEditClusters?: boolean;
+  /** Commit diff overlay — maps canonical_path to a DiffStatus. Null/empty when no commit is selected. */
+  diffOverlay?: Map<string, DiffStatus> | null;
 }) {
   const { fitView, getNodes, getEdges } = useReactFlow();
   const overridesRef = useRef<UserOverrides>(loadOverrides(projectId));
@@ -137,7 +140,10 @@ function InnerCanvas({
   const { merges, addMerge, removeMerge } = useClusterMerges(orgId ?? "", projectId);
   // Cluster name overrides — resolves the latest snapshot, loads any active
   // renames, and exposes saveTitle for the double-click-to-rename UI below.
-  const { overrides, saveTitle: saveClusterTitle } = useClusterOverrides(orgId ?? "", projectId);
+  const {
+    overrides, saveTitle: saveClusterTitle, saveSummary: saveClusterSummary, savingIds: overrideSavingIds,
+  } = useClusterOverrides(orgId ?? "", projectId);
+  const [summaryClusterId, setSummaryClusterId] = useState<string | null>(null);
 
   // ---------------------------------------------------------------------------
   // Visible clusters — respects merged-group nav entries
@@ -276,6 +282,45 @@ function InnerCanvas({
   // ---------------------------------------------------------------------------
   const mergeById = useMemo(() => new Map(activeMerges.map((m) => [m.id, m])), [activeMerges]);
 
+  // All descendant file paths per real (non-synthetic) cluster id — used to
+  // aggregate the commit diff overlay up to the pill level without re-walking
+  // the tree on every render.
+  const clusterFilePaths = useMemo(() => {
+    const map = new Map<string, string[]>();
+    function collect(cid: string): string[] {
+      const cached = map.get(cid);
+      if (cached) return cached;
+      const direct = (index.nodesOf.get(cid) ?? []).map((n) => n.canonical_path);
+      const childPaths = (index.childrenOf.get(cid) ?? []).flatMap((c) => collect(c.id));
+      const all = [...direct, ...childPaths];
+      map.set(cid, all);
+      return all;
+    }
+    for (const c of blueprint.clusters) collect(c.id);
+    return map;
+  }, [index, blueprint.clusters]);
+
+  // Diff counts per visible pill (real or merged), keyed the same as baseNodes.
+  const clusterDiffCounts = useMemo(() => {
+    const map = new Map<string, { added: number; modified: number; deleted: number }>();
+    if (!diffOverlay || diffOverlay.size === 0) return map;
+    for (const cluster of virtualClusters) {
+      const merge = mergeById.get(cluster.id);
+      const paths = merge
+        ? merge.sourceIds.flatMap((sid) => clusterFilePaths.get(sid) ?? [])
+        : (clusterFilePaths.get(cluster.id) ?? []);
+      let added = 0, modified = 0, deleted = 0;
+      for (const p of paths) {
+        const s = diffOverlay.get(p);
+        if (s === "added") added++;
+        else if (s === "modified" || s === "moved") modified++;
+        else if (s === "deleted") deleted++;
+      }
+      if (added + modified + deleted > 0) map.set(cluster.id, { added, modified, deleted });
+    }
+    return map;
+  }, [virtualClusters, mergeById, clusterFilePaths, diffOverlay]);
+
   // Cluster-list NODE positions — deliberately does not depend on edges or
   // domain filters, so toggling either panel doesn't retrigger the d3 force
   // simulation or re-fit the view (positions haven't changed, only styling).
@@ -303,6 +348,7 @@ function InnerCanvas({
           hideName:    inMergedGroup,
           canEditTitle: !merge && canEditClusters,
           onSaveTitle:  !merge && canEditClusters ? saveClusterTitle : undefined,
+          onOpenSummary: merge ? undefined : setSummaryClusterId,
         },
       };
     });
@@ -315,27 +361,31 @@ function InnerCanvas({
     return () => clearTimeout(t);
   }, [viewMode, baseNodes, fitView]);
 
-  // Domain styling pass — recolors/dims the laid-out pills without touching
-  // positions (same trick as the edge-filter split below).
+  // Domain + diff styling pass — recolors/dims the laid-out pills without
+  // touching positions (same trick as the edge-filter split below).
   useEffect(() => {
     if (viewMode !== "cluster-list") return;
     const filterActive = selectedDomains.size > 0;
-    if (!filterActive && !colorByDomain) { setNodes(baseNodes); return; }
+    const diffActive = !!diffOverlay && diffOverlay.size > 0;
+    if (!filterActive && !colorByDomain && !diffActive) { setNodes(baseNodes); return; }
     setNodes(baseNodes.map((n) => {
+      const cid = n.data.clusterId as string;
       const domain = (n.data.domain as string | null) ?? null;
-      const key = domainKeyByClusterId.get(n.data.clusterId as string) ?? UNCLASSIFIED_DOMAIN_KEY;
-      const dimmed = filterActive && !selectedDomains.has(key);
+      const key = domainKeyByClusterId.get(cid) ?? UNCLASSIFIED_DOMAIN_KEY;
+      const diffCounts = clusterDiffCounts.get(cid) ?? null;
+      const dimmed = (filterActive && !selectedDomains.has(key)) || (diffActive && !diffCounts);
       const ds = colorByDomain ? getDomainStyle(domain) : null;
       return {
         ...n,
         data: {
           ...n.data,
           dimmed,
+          diffCounts,
           ...(ds ? { colorBg: ds.pillBg, colorBorder: ds.pillBorder } : {}),
         },
       };
     }));
-  }, [viewMode, baseNodes, selectedDomains, colorByDomain, domainKeyByClusterId, setNodes]);
+  }, [viewMode, baseNodes, selectedDomains, colorByDomain, domainKeyByClusterId, clusterDiffCounts, diffOverlay, setNodes]);
 
   // Cluster-list EDGES — split out so edge-filter/cap changes are just a cheap
   // setEdges, not a full re-layout. Edges touching a domain-dimmed cluster fade
@@ -404,6 +454,7 @@ function InnerCanvas({
             showAllEdges: showAllFlowEdges,
             isSelectedEntry: n.id === selectedFlowEntry,
             onSelectFlow: () => setSelectedFlowEntry((prev) => prev === n.id ? null : n.id),
+            diffStatus: diffOverlay?.get(base.data.canonical_path as string),
             ...(dimmed ? { isFlowOrphan: true } : {}),
           },
         };
@@ -421,13 +472,15 @@ function InnerCanvas({
       const severedIds = new Set(overridesRef.current.severedEdges.map((s) => s.edgeId));
       setNodes(dn.map((n) => {
         const conn = rel.connectivity.get(n.id);
-        return !conn ? n : { ...n, data: { ...n.data, isOrphan: conn.isOrphan, edgeCount: conn.edgeCount, flowActive: false } };
+        const diffStatus = n.type === "fileCard" ? diffOverlay?.get(n.data.canonical_path as string) : undefined;
+        if (!conn && !diffStatus) return n;
+        return { ...n, data: { ...n.data, ...(conn ? { isOrphan: conn.isOrphan, edgeCount: conn.edgeCount, flowActive: false } : {}), diffStatus } };
       }));
       setEdges(de.filter((e) => !severedIds.has(e.id)));
     }
     setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 60);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, activeLeaf, flowActive, showAllFlowEdges, selectedFlowEntry, index, blueprint, colorOffset, fitView, setNodes, setEdges, onEdgeSelect]);
+  }, [viewMode, activeLeaf, flowActive, showAllFlowEdges, selectedFlowEntry, index, blueprint, colorOffset, fitView, setNodes, setEdges, onEdgeSelect, diffOverlay]);
 
   // ---------------------------------------------------------------------------
   // Click handler
@@ -1046,6 +1099,14 @@ function InnerCanvas({
         projectId={projectId}
         onClose={() => setSelectedFileNode(null)}
       />
+      <ClusterSummaryPanel
+        cluster={summaryClusterId ? index.clusterById.get(summaryClusterId) ?? null : null}
+        override={summaryClusterId ? overrides.get(summaryClusterId) : undefined}
+        canEdit={!!canEditClusters}
+        saving={summaryClusterId ? overrideSavingIds.has(summaryClusterId) : false}
+        onSave={saveClusterSummary}
+        onClose={() => setSummaryClusterId(null)}
+      />
       </div>
     </div>
   );
@@ -1055,7 +1116,7 @@ function InnerCanvas({
 // Public export
 // ---------------------------------------------------------------------------
 export default function CodeSightCanvas({
-  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters,
+  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters, diffOverlay,
 }: {
   blueprint: Blueprint;
   projectId: string;
@@ -1065,6 +1126,8 @@ export default function CodeSightCanvas({
   onStartTour?: () => void;
   /** ADMIN/OWNER only — enables double-click-to-rename on cluster pills. */
   canEditClusters?: boolean;
+  /** Commit diff overlay — maps canonical_path to a DiffStatus. Null/empty when no commit is selected. */
+  diffOverlay?: Map<string, DiffStatus> | null;
 }) {
   const [ready, setReady] = useState(false);
 
@@ -1089,6 +1152,7 @@ export default function CodeSightCanvas({
       <InnerCanvas
         blueprint={blueprint} projectId={projectId} orgId={orgId}
         onEdgeSelect={onEdgeSelect} onStartTour={onStartTour} canEditClusters={canEditClusters}
+        diffOverlay={diffOverlay}
       />
     </ReactFlowProvider>
   );

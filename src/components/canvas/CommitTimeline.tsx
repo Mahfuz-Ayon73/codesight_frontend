@@ -13,6 +13,8 @@ interface CommitTimelineProps {
   onRequestAnalysis: () => void;
   isAnalyzing: boolean;
   isLoading?: boolean;
+  /** ADMIN/OWNER only — hides the Deep analysis trigger for members without the role (matches backend's requireRole(ADMIN) check). */
+  canAnalyze?: boolean;
 }
 
 function formatRelativeTime(isoString: string | null): string {
@@ -38,6 +40,7 @@ function CommitTimeline({
   onRequestAnalysis,
   isAnalyzing,
   isLoading = false,
+  canAnalyze = true,
 }: CommitTimelineProps) {
   const snapshotBySha = new Map(snapshots.map((s) => [s.commitSha, s]));
   const isLive = activeShortSha === null;
@@ -56,22 +59,24 @@ function CommitTimeline({
             <span className="text-[10px] font-mono text-white/30">last {commits.length}</span>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onRequestAnalysis}
-            disabled={isAnalyzing}
-            title="Run deep graph analysis on all commits"
-            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-all disabled:opacity-40"
-            style={{
-              background: "rgba(99,102,241,0.12)",
-              border: "1px solid rgba(99,102,241,0.25)",
-              color: "rgba(165,180,252,0.9)",
-            }}
-          >
-            {isAnalyzing ? <Loader2 size={9} className="animate-spin" /> : <RefreshCw size={9} />}
-            {isAnalyzing ? "Analysing…" : "Deep analysis"}
-          </button>
-        </div>
+        {canAnalyze && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onRequestAnalysis}
+              disabled={isAnalyzing}
+              title="Run deep graph analysis on all commits"
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-all disabled:opacity-40"
+              style={{
+                background: "rgba(99,102,241,0.12)",
+                border: "1px solid rgba(99,102,241,0.25)",
+                color: "rgba(165,180,252,0.9)",
+              }}
+            >
+              {isAnalyzing ? <Loader2 size={9} className="animate-spin" /> : <RefreshCw size={9} />}
+              {isAnalyzing ? "Analysing…" : "Deep analysis"}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Scrollable commit strip */}
