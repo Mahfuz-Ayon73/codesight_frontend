@@ -21,6 +21,9 @@ import ClusterGroupNode from "./ClusterGroupNode";
 import FileCardNode from "./FileCardNode";
 import EdgeFilterPanel from "./EdgeFilterPanel";
 import DomainFilterPanel from "./DomainFilterPanel";
+import OwnershipFilterPanel from "./OwnershipFilterPanel";
+import { useClusterOwnership } from "./useClusterOwnership";
+import { getOwnerStyle } from "./ownershipStyles";
 import CodeViewerPanel from "./CodeViewerPanel";
 import ClusterSummaryPanel from "./ClusterSummaryPanel";
 import { type EdgeDiffSelection } from "./EdgeDiffPanel";
@@ -28,6 +31,7 @@ import {
   useClusterMerges, applyMerges, suggestMerges, type ClusterMerge,
 } from "./useClusterMerges";
 import { useClusterOverrides } from "./useClusterOverrides";
+import { useClusterNotes } from "./useClusterNotes";
 import { exportCanvasAsPng, exportGraphAsDrawio } from "./exportGraph";
 import {
   Layers, FileCode, GitBranch, ArrowLeft, Info, Link2, Unlink,
@@ -73,7 +77,7 @@ interface NavEntry {
 // Inner canvas
 // ---------------------------------------------------------------------------
 function InnerCanvas({
-  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters, diffOverlay,
+  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters, canAddNotes, currentUserId, diffOverlay,
 }: {
   blueprint: Blueprint;
   projectId: string;
@@ -81,6 +85,9 @@ function InnerCanvas({
   onEdgeSelect?: (selection: EdgeDiffSelection | null) => void;
   onStartTour?: () => void;
   canEditClusters?: boolean;
+  /** MEMBER/ADMIN/OWNER — enables adding a note in the cluster summary panel; VIEWER can still read. */
+  canAddNotes?: boolean;
+  currentUserId?: string | null;
   /** Commit diff overlay — maps canonical_path to a DiffStatus. Null/empty when no commit is selected. */
   diffOverlay?: Map<string, DiffStatus> | null;
 }) {
@@ -135,6 +142,13 @@ function InnerCanvas({
   // Domain spotlight filter (empty = show all) + domain-based pill coloring.
   const [selectedDomains, setSelectedDomains] = useState<Set<string>>(new Set());
   const [colorByDomain, setColorByDomain]     = useState(false);
+  // Ownership spotlight filter + owner-based pill coloring. Data is fetched
+  // lazily (git blame isn't free) — see ownershipEnabled below.
+  const [selectedOwners, setSelectedOwners]   = useState<Set<string>>(new Set());
+  const [colorByOwner, setColorByOwner]       = useState(false);
+  const [ownershipEnabled, setOwnershipEnabled] = useState(false);
+  const { ownership, load: loadOwnership, loading: ownershipLoading, error: ownershipError } =
+    useClusterOwnership(orgId ?? "", projectId);
 
   // Merge persistence
   const { merges, addMerge, removeMerge } = useClusterMerges(orgId ?? "", projectId);
@@ -143,6 +157,11 @@ function InnerCanvas({
   const {
     overrides, saveTitle: saveClusterTitle, saveSummary: saveClusterSummary, savingIds: overrideSavingIds,
   } = useClusterOverrides(orgId ?? "", projectId);
+  // Collaborative cluster notes (SRS 2.2.9) — MEMBER-tier, additive, separate
+  // from the ADMIN/OWNER-only title/summary override above.
+  const {
+    notesByCluster, addNote: addClusterNote, deleteNote: deleteClusterNote, saving: noteSaving,
+  } = useClusterNotes(orgId ?? "", projectId);
   const [summaryClusterId, setSummaryClusterId] = useState<string | null>(null);
 
   // ---------------------------------------------------------------------------
@@ -321,6 +340,38 @@ function InnerCanvas({
     return map;
   }, [virtualClusters, mergeById, clusterFilePaths, diffOverlay]);
 
+  // Primary owner per visible pill — sums each author's blamed-line count
+  // across every file in the cluster (not a per-file majority vote, so a
+  // cluster's owner reflects who wrote the most code in it overall).
+  const clusterOwnership = useMemo(() => {
+    const map = new Map<string, { ownerName: string; ownerPercentage: number; ownerCount: number }>();
+    if (ownership.size === 0) return map;
+    for (const cluster of virtualClusters) {
+      const merge = mergeById.get(cluster.id);
+      const paths = merge
+        ? merge.sourceIds.flatMap((sid) => clusterFilePaths.get(sid) ?? [])
+        : (clusterFilePaths.get(cluster.id) ?? []);
+      const lineTotals = new Map<string, number>();
+      let total = 0;
+      for (const p of paths) {
+        const fo = ownership.get(p);
+        if (!fo) continue;
+        for (const author of fo.authors) {
+          lineTotals.set(author.name, (lineTotals.get(author.name) ?? 0) + author.lines);
+          total += author.lines;
+        }
+      }
+      if (total === 0) continue;
+      const [ownerName, ownerLines] = [...lineTotals.entries()].sort((a, b) => b[1] - a[1])[0];
+      map.set(cluster.id, {
+        ownerName,
+        ownerPercentage: (ownerLines / total) * 100,
+        ownerCount: lineTotals.size,
+      });
+    }
+    return map;
+  }, [virtualClusters, mergeById, clusterFilePaths, ownership]);
+
   // Cluster-list NODE positions — deliberately does not depend on edges or
   // domain filters, so toggling either panel doesn't retrigger the d3 force
   // simulation or re-fit the view (positions haven't changed, only styling).
@@ -361,31 +412,44 @@ function InnerCanvas({
     return () => clearTimeout(t);
   }, [viewMode, baseNodes, fitView]);
 
-  // Domain + diff styling pass — recolors/dims the laid-out pills without
-  // touching positions (same trick as the edge-filter split below).
+  // Domain + ownership + diff styling pass — recolors/dims the laid-out
+  // pills without touching positions (same trick as the edge-filter split below).
   useEffect(() => {
     if (viewMode !== "cluster-list") return;
     const filterActive = selectedDomains.size > 0;
+    const ownerFilterActive = selectedOwners.size > 0;
     const diffActive = !!diffOverlay && diffOverlay.size > 0;
-    if (!filterActive && !colorByDomain && !diffActive) { setNodes(baseNodes); return; }
+    const ownerDataLoaded = clusterOwnership.size > 0;
+    if (!filterActive && !colorByDomain && !diffActive && !ownerFilterActive && !colorByOwner && !ownerDataLoaded) {
+      setNodes(baseNodes);
+      return;
+    }
     setNodes(baseNodes.map((n) => {
       const cid = n.data.clusterId as string;
       const domain = (n.data.domain as string | null) ?? null;
       const key = domainKeyByClusterId.get(cid) ?? UNCLASSIFIED_DOMAIN_KEY;
       const diffCounts = clusterDiffCounts.get(cid) ?? null;
-      const dimmed = (filterActive && !selectedDomains.has(key)) || (diffActive && !diffCounts);
-      const ds = colorByDomain ? getDomainStyle(domain) : null;
+      const owner = clusterOwnership.get(cid) ?? null;
+      const dimmed =
+        (filterActive && !selectedDomains.has(key)) ||
+        (diffActive && !diffCounts) ||
+        (ownerFilterActive && !(owner && selectedOwners.has(owner.ownerName)));
+      const ds = colorByDomain ? getDomainStyle(domain) : (colorByOwner && owner ? getOwnerStyle(owner.ownerName) : null);
       return {
         ...n,
         data: {
           ...n.data,
           dimmed,
           diffCounts,
+          ownerName:       owner?.ownerName ?? null,
+          ownerPercentage: owner?.ownerPercentage,
+          ownerCount:      owner?.ownerCount,
           ...(ds ? { colorBg: ds.pillBg, colorBorder: ds.pillBorder } : {}),
         },
       };
     }));
-  }, [viewMode, baseNodes, selectedDomains, colorByDomain, domainKeyByClusterId, clusterDiffCounts, diffOverlay, setNodes]);
+  }, [viewMode, baseNodes, selectedDomains, colorByDomain, domainKeyByClusterId, clusterDiffCounts, diffOverlay,
+      selectedOwners, colorByOwner, clusterOwnership, setNodes]);
 
   // Cluster-list EDGES — split out so edge-filter/cap changes are just a cheap
   // setEdges, not a full re-layout. Edges touching a domain-dimmed cluster fade
@@ -971,6 +1035,30 @@ function InnerCanvas({
                 onColorByDomainChange={setColorByDomain}
               />
             )}
+            {viewMode === "cluster-list" && (
+              <OwnershipFilterPanel
+                clusterOwners={virtualClusters.map((c) => {
+                  const o = clusterOwnership.get(c.id);
+                  return {
+                    clusterId: c.id,
+                    ownerName: o?.ownerName ?? null,
+                    ownerPercentage: o?.ownerPercentage ?? 0,
+                    ownerCount: o?.ownerCount ?? 0,
+                  };
+                })}
+                selected={selectedOwners}
+                onSelectedChange={setSelectedOwners}
+                colorByOwner={colorByOwner}
+                onColorByOwnerChange={setColorByOwner}
+                enabled={ownershipEnabled}
+                onEnableChange={(v) => {
+                  setOwnershipEnabled(v);
+                  if (v) loadOwnership(blueprint.nodes.map((n) => n.canonical_path));
+                }}
+                loading={ownershipLoading}
+                error={ownershipError}
+              />
+            )}
             <EdgeFilterPanel
               filters={edgeFilters}
               onChange={setEdgeFilters}
@@ -1106,6 +1194,12 @@ function InnerCanvas({
         saving={summaryClusterId ? overrideSavingIds.has(summaryClusterId) : false}
         onSave={saveClusterSummary}
         onClose={() => setSummaryClusterId(null)}
+        notes={summaryClusterId ? notesByCluster.get(summaryClusterId) ?? [] : []}
+        canAddNotes={!!canAddNotes}
+        currentUserId={currentUserId ?? null}
+        savingNote={noteSaving}
+        onAddNote={addClusterNote}
+        onDeleteNote={deleteClusterNote}
       />
       </div>
     </div>
@@ -1116,7 +1210,7 @@ function InnerCanvas({
 // Public export
 // ---------------------------------------------------------------------------
 export default function CodeSightCanvas({
-  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters, diffOverlay,
+  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters, canAddNotes, currentUserId, diffOverlay,
 }: {
   blueprint: Blueprint;
   projectId: string;
@@ -1126,6 +1220,9 @@ export default function CodeSightCanvas({
   onStartTour?: () => void;
   /** ADMIN/OWNER only — enables double-click-to-rename on cluster pills. */
   canEditClusters?: boolean;
+  /** MEMBER/ADMIN/OWNER — enables adding a note in the cluster summary panel; VIEWER can still read. */
+  canAddNotes?: boolean;
+  currentUserId?: string | null;
   /** Commit diff overlay — maps canonical_path to a DiffStatus. Null/empty when no commit is selected. */
   diffOverlay?: Map<string, DiffStatus> | null;
 }) {
@@ -1152,6 +1249,7 @@ export default function CodeSightCanvas({
       <InnerCanvas
         blueprint={blueprint} projectId={projectId} orgId={orgId}
         onEdgeSelect={onEdgeSelect} onStartTour={onStartTour} canEditClusters={canEditClusters}
+        canAddNotes={canAddNotes} currentUserId={currentUserId}
         diffOverlay={diffOverlay}
       />
     </ReactFlowProvider>

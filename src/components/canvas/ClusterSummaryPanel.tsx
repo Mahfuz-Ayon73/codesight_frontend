@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Layers, X } from "lucide-react";
-import type { BlueprintCluster, ClusterOverride } from "@/types/project/project.schema";
+import { Layers, Trash2, X } from "lucide-react";
+import type { BlueprintCluster, ClusterNote, ClusterOverride } from "@/types/project/project.schema";
 
 interface ClusterSummaryPanelProps {
   cluster:  BlueprintCluster | null;
@@ -11,17 +11,28 @@ interface ClusterSummaryPanelProps {
   saving:   boolean;
   onSave:   (clusterId: string, summary: string) => void;
   onClose:  () => void;
+  /** Collaborative notes (SRS 2.2.9) for the open cluster, oldest first. */
+  notes?: ClusterNote[];
+  /** MEMBER/ADMIN/OWNER — enables the add-note control; VIEWER sees notes read-only. */
+  canAddNotes?: boolean;
+  currentUserId?: string | null;
+  savingNote?: boolean;
+  onAddNote?: (clusterId: string, content: string) => void;
+  onDeleteNote?: (clusterId: string, noteId: number) => void;
 }
 
 export default function ClusterSummaryPanel({
   cluster, override, canEdit, saving, onSave, onClose,
+  notes = [], canAddNotes = false, currentUserId = null, savingNote = false, onAddNote, onDeleteNote,
 }: ClusterSummaryPanelProps) {
   const suggested = cluster?.functional_summary ?? "";
   const current = override?.overrideSummary ?? suggested;
   const [draft, setDraft] = useState(current);
+  const [noteDraft, setNoteDraft] = useState("");
 
   // Reseed the draft whenever a different cluster is opened.
   useEffect(() => { setDraft(current); }, [cluster?.id, current]);
+  useEffect(() => { setNoteDraft(""); }, [cluster?.id]);
 
   useEffect(() => {
     if (!cluster) return;
@@ -86,6 +97,67 @@ export default function ClusterSummaryPanel({
                   Originally suggested: <span className="italic">{suggested}</span>
                 </p>
               )}
+
+              <div className="mt-3 pt-3 border-t border-white/[0.07] flex flex-col gap-2">
+                <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide">
+                  Notes {notes.length > 0 && `(${notes.length})`}
+                </p>
+
+                {notes.length === 0 ? (
+                  <p className="text-[11px] text-zinc-600 italic">No notes yet.</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {notes.map((note) => (
+                      <div
+                        key={note.id}
+                        className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2 flex flex-col gap-1"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-medium text-zinc-400 truncate">
+                            {note.authorName}
+                            <span className="text-zinc-600 font-normal"> · {formatNoteDate(note.createdAt)}</span>
+                          </span>
+                          {(note.authorId === currentUserId || canEdit) && onDeleteNote && cluster && (
+                            <button
+                              onClick={() => onDeleteNote(cluster.id, note.id)}
+                              className="shrink-0 p-0.5 rounded text-zinc-600 hover:text-red-400 hover:bg-white/5 transition-colors"
+                              aria-label="Delete note"
+                            >
+                              <Trash2 size={11} />
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-[11px] leading-relaxed text-zinc-300 whitespace-pre-wrap">
+                          {note.content}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {canAddNotes && onAddNote && cluster && (
+                  <div className="flex flex-col gap-1.5 mt-1">
+                    <textarea
+                      value={noteDraft}
+                      onChange={(e) => setNoteDraft(e.target.value)}
+                      placeholder="Add a note for the team…"
+                      rows={2}
+                      maxLength={2000}
+                      className="w-full resize-none rounded-lg bg-white/[0.04] border border-white/[0.08] px-3 py-2 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-400/50"
+                    />
+                    <button
+                      disabled={!noteDraft.trim() || savingNote}
+                      onClick={() => {
+                        onAddNote(cluster.id, noteDraft.trim());
+                        setNoteDraft("");
+                      }}
+                      className="self-end text-[11px] font-medium px-3 py-1.5 rounded-md bg-indigo-500 text-white hover:bg-indigo-400 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                    >
+                      {savingNote ? "Adding…" : "Add note"}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             {canEdit && (
@@ -111,4 +183,11 @@ export default function ClusterSummaryPanel({
       </div>
     </div>
   );
+}
+
+function formatNoteDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
+    " " + date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }

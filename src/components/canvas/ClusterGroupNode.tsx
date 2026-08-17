@@ -2,8 +2,9 @@
 
 import { memo, useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Layers, ChevronRight, X, Pencil, Info, Plus, Minus } from "lucide-react";
+import { Layers, ChevronRight, X, Pencil, Info, Plus, Minus, AlertTriangle } from "lucide-react";
 import { getDomainStyle, formatDomainLabel } from "./domainStyles";
+import { getOwnerStyle, initialsOf, BUS_FACTOR_THRESHOLD } from "./ownershipStyles";
 
 interface ClusterGroupData {
   label:           string;
@@ -31,6 +32,10 @@ interface ClusterGroupData {
   onOpenSummary?:  (clusterId: string) => void;
   /** Set when a commit diff overlay is active — aggregate change counts for this cluster's files. */
   diffCounts?: { added: number; modified: number; deleted: number } | null;
+  /** Set when the ownership panel is enabled — git-blame-derived owner of this cluster's files. */
+  ownerName?:       string | null;
+  ownerPercentage?: number;
+  ownerCount?:      number;
   [key: string]: unknown;
 }
 
@@ -71,6 +76,36 @@ function DomainBadge({ d }: { d: ClusterGroupData }) {
     >
       <span className="truncate">{formatDomainLabel(d.domain)}</span>
       {pct && <span style={{ opacity: 0.55 }}>{pct}</span>}
+    </span>
+  );
+}
+
+// Small chip naming the git-blame-derived primary owner of a cluster's
+// files. Shows a warning glyph when one person wrote almost all of it
+// (BUS_FACTOR_THRESHOLD) — a bus-factor risk signal, not a value judgment.
+function OwnershipBadge({ d }: { d: ClusterGroupData }) {
+  if (!d.ownerName) return null;
+  const os = getOwnerStyle(d.ownerName);
+  const pct = Math.round(d.ownerPercentage ?? 0);
+  const risky = pct >= BUS_FACTOR_THRESHOLD && (d.ownerCount ?? 1) <= 2;
+  const tooltip = `${d.ownerName} · ${pct}% of blamed lines${
+    d.ownerCount ? ` · ${d.ownerCount} contributor${d.ownerCount === 1 ? "" : "s"}` : ""
+  }${risky ? "\nBus-factor risk — one person owns almost all of this cluster" : ""}`;
+  return (
+    <span
+      title={tooltip}
+      className="inline-flex items-center gap-1 text-[8px] font-mono font-semibold px-1.5 py-0.5 rounded-full max-w-[150px]"
+      style={{ background: os.badgeBg, border: `1px solid ${os.badgeBorder}`, color: os.badgeText }}
+    >
+      <span
+        className="flex items-center justify-center w-3 h-3 rounded-full shrink-0 text-[6px] font-bold"
+        style={{ background: os.dot, color: "#0a0a12" }}
+      >
+        {initialsOf(d.ownerName)}
+      </span>
+      <span className="truncate">{d.ownerName}</span>
+      <span style={{ opacity: 0.55 }}>{pct}%</span>
+      {risky && <AlertTriangle size={8} color="rgba(251,191,36,0.90)" />}
     </span>
   );
 }
@@ -128,8 +163,9 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
           >
             {d.fileCount}
           </span>
-          <span style={{ pointerEvents: "auto" }}>
+          <span style={{ pointerEvents: "auto" }} className="flex items-center gap-1">
             <DomainBadge d={d} />
+            <OwnershipBadge d={d} />
           </span>
         </div>
       </div>
@@ -289,9 +325,10 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
         )}
       </div>
 
-      {/* Domain badge + diff counts */}
+      {/* Domain + ownership badges, diff counts */}
       <div className="absolute bottom-2.5 left-3 flex items-center gap-1.5 select-none">
         <DomainBadge d={d} />
+        <OwnershipBadge d={d} />
         {diffCounts && (diffCounts.added + diffCounts.modified + diffCounts.deleted > 0) && (
           <span className="flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded-full"
             style={{ background: "rgba(0,0,0,0.30)", color: "rgba(255,255,255,0.75)" }}>

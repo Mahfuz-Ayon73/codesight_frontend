@@ -67,22 +67,29 @@ export default async function OrgWorkspacePage({ params, searchParams }: Props) 
 
   const hasAnalysis = targetProject?.analysisStatus === "COMPLETED";
 
-  // Cluster rename (double-click on the canvas) is gated to ADMIN/OWNER —
-  // resolve the caller's role on this specific project alongside the blueprint
-  // fetch so we don't add a second round trip after the page has already loaded.
-  const [blueprint, canEditClusters]: [Blueprint | null, boolean] = hasAnalysis && targetProject
+  // Cluster rename (double-click on the canvas) is gated to ADMIN/OWNER, while
+  // cluster notes (SRS 2.2.9) are gated one tier lower at MEMBER — resolve the
+  // caller's role on this specific project alongside the blueprint fetch so we
+  // don't add a second round trip after the page has already loaded.
+  type CanvasPermissions = { canEditClusters: boolean; canAddNotes: boolean; currentUserId: string | null };
+  const [blueprint, permissions]: [Blueprint | null, CanvasPermissions] = hasAnalysis && targetProject
     ? await Promise.all([
         projectService.getBlueprint(token, organizationId, targetProject.id).catch(() => null),
         Promise.all([
           projectService.listMembers(token, organizationId, targetProject.id).catch(() => []),
           getProfileAction().catch(() => null),
         ]).then(([members, currentUser]) => {
-          if (!currentUser) return false;
+          if (!currentUser) return { canEditClusters: false, canAddNotes: false, currentUserId: null };
           const myRole = members.find((m) => m.userId === currentUser.id)?.role;
-          return myRole === "ADMIN" || myRole === "OWNER";
+          return {
+            canEditClusters: myRole === "ADMIN" || myRole === "OWNER",
+            canAddNotes: myRole === "ADMIN" || myRole === "OWNER" || myRole === "MEMBER",
+            currentUserId: currentUser.id,
+          };
         }),
       ])
-    : [null, false];
+    : [null, { canEditClusters: false, canAddNotes: false, currentUserId: null }];
+  const { canEditClusters, canAddNotes, currentUserId } = permissions;
 
   return (
     <div className="max-w-5xl mx-auto flex flex-col gap-6">
@@ -131,6 +138,8 @@ export default async function OrgWorkspacePage({ params, searchParams }: Props) 
               <DashboardGraphPreview
                 blueprint={blueprint} projectId={targetProject.id} orgId={organizationId}
                 canEditClusters={canEditClusters}
+                canAddNotes={canAddNotes}
+                currentUserId={currentUserId}
               />
             ) : hasAnalysis && !blueprint ? (
               <div className="flex items-center justify-center h-64 text-sm text-zinc-400">

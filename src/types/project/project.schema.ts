@@ -190,8 +190,44 @@ export interface ClusterOverride {
   version: number;
 }
 
+// A single free-form note attached to a cluster (SRS 2.2.9). Unlike
+// ClusterOverride, several of these can exist for the same clusterId — they
+// accumulate into a running history rather than overwriting each other.
+export interface ClusterNote {
+  id: number;
+  clusterId: string;
+  content: string;
+  authorId: string;
+  authorName: string;
+  createdAt: string;
+}
+
 export interface GraphDelta {
   added_nodes: string[];
   removed_nodes: string[];
   moved_nodes: { file: string; from_cluster: string; to_cluster: string }[];
+}
+
+// Cluster ownership (git-blame-derived) — "who currently owns this code".
+// Backend returns per-file breakdowns keyed by canonical_path; the frontend
+// aggregates them up to cluster level itself (same split as CommitDiff).
+export interface AuthorShare {
+  name: string;
+  email: string;
+  lines: number;
+  percentage: number;
+}
+
+export interface FileOwnership {
+  path: string;
+  authors: AuthorShare[];
+  primaryOwner: string;
+  primaryOwnerEmail: string;
+  primaryOwnerPercentage: number;
+  totalLines: number;
+}
+
+export interface OwnershipResponse {
+  files: FileOwnership[];
+  truncated: boolean;
 }
