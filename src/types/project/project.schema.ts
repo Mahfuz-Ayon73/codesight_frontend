@@ -97,6 +97,10 @@ export interface BlueprintCluster {
   domain_type?: DomainType | null;
   domain_confidence?: number | null;
   domain_evidence?: string[];
+  /** Optional Gemini/OpenAI/Ollama sanity pass over `domain` — advisory only, never overrides it. */
+  domain_llm_validated?: boolean | null;
+  domain_llm_confidence?: number | null;
+  domain_llm_reason?: string | null;
 }
 
 export interface JourneyCoverage {

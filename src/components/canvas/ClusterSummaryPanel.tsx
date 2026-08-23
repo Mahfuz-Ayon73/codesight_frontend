@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Layers, Trash2, X } from "lucide-react";
+import { CheckCircle2, HelpCircle, Layers, Trash2, X, XCircle } from "lucide-react";
 import type { BlueprintCluster, ClusterNote, ClusterOverride } from "@/types/project/project.schema";
+import { getDomainStyle, formatDomainLabel } from "./domainStyles";
 
 interface ClusterSummaryPanelProps {
   cluster:  BlueprintCluster | null;
@@ -78,12 +79,73 @@ export default function ClusterSummaryPanel({
             </div>
 
             <div className="flex-1 overflow-auto px-4 py-3 flex flex-col gap-2">
+              {cluster.domain && cluster.domain_type !== "UNCLASSIFIED" && (() => {
+                const ds = getDomainStyle(cluster.domain);
+                const validated = cluster.domain_llm_validated;
+                return (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span
+                      className="text-[8px] font-mono font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
+                      title={cluster.domain_evidence?.join("\n")}
+                      style={{
+                        background: ds.badgeBg,
+                        border:     `1px ${cluster.domain_type === "EMERGENT" ? "dashed" : "solid"} ${ds.badgeBorder}`,
+                        color:      ds.badgeText,
+                      }}
+                    >
+                      {formatDomainLabel(cluster.domain)}
+                    </span>
+                    {validated === true && (
+                      <span
+                        className="inline-flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+                        title={cluster.domain_llm_reason ?? undefined}
+                        style={{ background: "rgba(16,185,129,0.10)", color: "rgba(52,211,153,0.90)" }}
+                      >
+                        <CheckCircle2 size={10} />
+                        LLM confirmed
+                        {typeof cluster.domain_llm_confidence === "number" &&
+                          ` · ${Math.round(cluster.domain_llm_confidence * 100)}%`}
+                      </span>
+                    )}
+                    {validated === false && (
+                      <span
+                        className="inline-flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+                        title={cluster.domain_llm_reason ?? undefined}
+                        style={{ background: "rgba(244,63,94,0.10)", color: "rgba(251,113,133,0.90)" }}
+                      >
+                        <XCircle size={10} />
+                        LLM disagrees
+                        {typeof cluster.domain_llm_confidence === "number" &&
+                          ` · ${Math.round(cluster.domain_llm_confidence * 100)}%`}
+                      </span>
+                    )}
+                    {validated == null && (
+                      <span
+                        className="inline-flex items-center gap-1 text-[9px]"
+                        title="No LLM configured, or the validation call failed for this cluster."
+                        style={{ color: "rgba(255,255,255,0.30)" }}
+                      >
+                        <HelpCircle size={10} />
+                        Not LLM-validated
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {cluster.domain_llm_reason && (
+                <p className="text-[10px] leading-relaxed text-zinc-500 italic">
+                  “{cluster.domain_llm_reason}”
+                </p>
+              )}
+
               {canEdit ? (
                 <textarea
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   placeholder={suggested || "No summary generated for this cluster yet."}
                   rows={8}
+                  style={{ color: "#f4f4f5" }}
                   className="w-full flex-1 resize-none rounded-lg bg-white/[0.04] border border-white/[0.08] px-3 py-2 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-400/50"
                 />
               ) : (
@@ -143,6 +205,7 @@ export default function ClusterSummaryPanel({
                       placeholder="Add a note for the team…"
                       rows={2}
                       maxLength={2000}
+                      style={{ color: "#f4f4f5" }}
                       className="w-full resize-none rounded-lg bg-white/[0.04] border border-white/[0.08] px-3 py-2 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-400/50"
                     />
                     <button

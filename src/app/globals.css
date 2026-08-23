@@ -30,20 +30,23 @@ body {
  * Belt-and-suspenders: still force an explicit, high-contrast text
  * color on form controls even though color-scheme is pinned above.
  * Elements that intentionally sit on a dark background (e.g. the flow
- * canvas toolbar) already set their own `text-*` class, which wins
- * over this plain element selector.
+ * canvas toolbar, the cluster notes panel) set their own `text-*`
+ * class, which must win over this reset — so the reset lives in
+ * Tailwind's `base` layer, which utility classes always beat.
  */
-input,
-textarea,
-select {
-  color: #171717;
-}
+@layer base {
+  input,
+  textarea,
+  select {
+    color: #171717;
+  }
 
-input:-webkit-autofill,
-input:-webkit-autofill:hover,
-input:-webkit-autofill:focus,
-textarea:-webkit-autofill,
-select:-webkit-autofill {
-  -webkit-text-fill-color: #171717;
-  transition: background-color 5000s ease-in-out 0s;
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-text-fill-color: #171717;
+    transition: background-color 5000s ease-in-out 0s;
+  }
 }
