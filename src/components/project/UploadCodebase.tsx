@@ -2,28 +2,25 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Upload, GitBranch, FolderOpen, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { Upload, GitBranch, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import Button from "@/components/Button/Button";
 
-type UploadMethod = "folder" | "zip" | "github";
+type UploadMethod = "zip" | "github";
 
 type Props = {
   organizationId: string;
   projectId: string;
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
 const CHUNK_SIZE = 3 * 1024 * 1024; // 3MB per chunk — stays under Next.js proxy limits
 
 export default function UploadCodebase({ organizationId, projectId }: Props) {
   const router = useRouter();
   const zipRef = useRef<HTMLInputElement>(null);
-  const folderRef = useRef<HTMLInputElement>(null);
 
   const [method, setMethod] = useState<UploadMethod>("zip");
   const [githubUrl, setGithubUrl] = useState("");
   const [githubToken, setGithubToken] = useState("");
-  const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [selectedZip, setSelectedZip] = useState<File | null>(null);
   const [status,       setStatus]       = useState<"idle" | "uploading" | "success" | "error">("idle");
   const [errorMsg,     setErrorMsg]     = useState<string | null>(null);
@@ -31,8 +28,6 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
   const [cloneStage,   setCloneStage]   = useState("");
   const [clonePercent, setClonePercent] = useState(0);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const base = `${API_BASE}/api/v1/organizations/${organizationId}/projects/${projectId}`;
 
   const STAGE_LABELS: Record<string, string> = {
     idle:         "Preparing…",
@@ -82,13 +77,6 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
     return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
   }, [status, method, organizationId, projectId, router]);
 
-  function getToken() {
-    return document.cookie
-      .split("; ")
-      .find((c) => c.startsWith("codesight_token="))
-      ?.split("=")[1];
-  }
-
   async function uploadZipChunked(file: File) {
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     const uploadId = crypto.randomUUID();
@@ -137,28 +125,9 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
     setStatus("uploading");
     setErrorMsg(null);
     setProgress(0);
-    const token = getToken();
 
     try {
-      if (method === "folder") {
-        if (!selectedFiles || selectedFiles.length === 0) {
-          setErrorMsg("Please select a folder.");
-          setStatus("error");
-          return;
-        }
-        const form = new FormData();
-        Array.from(selectedFiles).forEach((file) => form.append("files", file));
-        const res = await fetch(`${base}/upload/folder`, {
-          method: "POST",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          body: form,
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => null);
-          throw new Error(body?.message ?? "Folder upload failed");
-        }
-
-      } else if (method === "zip") {
+      if (method === "zip") {
         if (!selectedZip) { setErrorMsg("Please select a ZIP file."); setStatus("error"); return; }
         await uploadZipChunked(selectedZip);
 
@@ -189,7 +158,7 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
         return;
       }
 
-      // Reached only for the synchronous methods (zip / folder). GitHub returns above
+      // Reached only for the synchronous ZIP method. GitHub returns above
       // so the progress poller can take over.
       setStatus("success");
       setTimeout(() => router.refresh(), 1200);
@@ -218,7 +187,7 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
       <div>
         <p className="text-base font-semibold text-zinc-800">Upload your codebase</p>
         <p className="text-sm text-zinc-400 mt-0.5">
-          GitHub URL works best for large projects. ZIP handles any size locally. Folder upload works for small projects only.
+          GitHub URL works best for large projects. ZIP handles any size locally.
         </p>
       </div>
 
@@ -226,7 +195,6 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
       <div className="flex gap-2">
         {(
           [
-            { key: "folder", label: "Folder", icon: <FolderOpen size={14} /> },
             { key: "zip", label: "ZIP file", icon: <Upload size={14} /> },
             { key: "github", label: "GitHub URL", icon: <GitBranch size={14} /> },
           ] as { key: UploadMethod; label: string; icon: React.ReactNode }[]
@@ -245,37 +213,6 @@ export default function UploadCodebase({ organizationId, projectId }: Props) {
           </button>
         ))}
       </div>
-
-      {/* Folder input */}
-      {method === "folder" && (
-        <div
-          onClick={() => folderRef.current?.click()}
-          className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-200 bg-zinc-50 py-10 text-sm text-zinc-400 hover:border-cyan-300 hover:text-cyan-500 transition"
-        >
-          <FolderOpen size={24} className="mb-2" />
-          {selectedFiles && selectedFiles.length > 0 ? (
-            <>
-              <span className="font-medium text-zinc-600">{selectedFiles.length} file{selectedFiles.length !== 1 ? "s" : ""} selected</span>
-              <span className="text-xs mt-0.5 text-zinc-400">Click to change</span>
-            </>
-          ) : (
-            <>
-              <span>Click to select a folder</span>
-              <span className="text-xs mt-0.5">All files inside will be uploaded</span>
-            </>
-          )}
-          <input
-            ref={folderRef}
-            type="file"
-            // @ts-expect-error — webkitdirectory is non-standard
-            webkitdirectory=""
-            directory=""
-            multiple
-            className="hidden"
-            onChange={(e) => { setSelectedFiles(e.target.files); setStatus("idle"); }}
-          />
-        </div>
-      )}
 
       {/* ZIP input */}
       {method === "zip" && (

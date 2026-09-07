@@ -13,13 +13,18 @@ interface Props {
 }
 
 const TYPE_ROWS: Array<{
-  key:   keyof Pick<EdgeFilterOptions, "showRenders" | "showBelongsToDomain" | "showSemanticSimilarity">;
+  key:   keyof Pick<EdgeFilterOptions,
+                    "showRenders" | "showBelongsToDomain" | "showSemanticSimilarity" |
+                    "showCallsApi" | "showEmitsEvent" | "showProvidesState">;
   label: string;
   color: string;
 }> = [
   { key: "showRenders",            label: "RENDERS",    color: EDGE_TYPE_COLORS.RENDERS             },
   { key: "showBelongsToDomain",    label: "DOMAIN",     color: EDGE_TYPE_COLORS.BELONGS_TO_DOMAIN   },
   { key: "showSemanticSimilarity", label: "SIMILARITY", color: EDGE_TYPE_COLORS.SEMANTIC_SIMILARITY },
+  { key: "showCallsApi",           label: "API CALL",   color: EDGE_TYPE_COLORS.CALLS_API           },
+  { key: "showEmitsEvent",         label: "EVENT",      color: EDGE_TYPE_COLORS.EMITS_EVENT         },
+  { key: "showProvidesState",      label: "STATE",      color: EDGE_TYPE_COLORS.PROVIDES_STATE      },
 ];
 
 export default function EdgeFilterPanel({ filters, onChange, showOverviewControls, hiddenCount = 0 }: Props) {
@@ -32,6 +37,9 @@ export default function EdgeFilterPanel({ filters, onChange, showOverviewControl
     !filters.showRenders,
     !filters.showBelongsToDomain,
     filters.showSemanticSimilarity,
+    !filters.showCallsApi,
+    !filters.showEmitsEvent,
+    !filters.showProvidesState,
     filters.showDeadImports,
   ].filter(Boolean).length;
 

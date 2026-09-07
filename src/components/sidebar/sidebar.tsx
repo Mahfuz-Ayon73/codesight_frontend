@@ -3,8 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useOrganizations } from "@/hooks/Organization/Organization.hooks";
+import { useCurrentOrgId } from "@/hooks/Organization/Organization.hooks";
 import { listOrganizationsAction } from "@/actions/organization.action";
+import type { Organization } from "@/types/organization/organization.schema";
 import { LayoutDashboard, FolderOpen, BarChart2, Users, Settings, Plus } from "lucide-react";
 
 const navItems = [
@@ -15,18 +16,42 @@ const navItems = [
   { label: "Settings",     href: "/settings",     icon: Settings },
 ];
 
-export default function Sidebar() {
+type Props = {
+  organizations: Organization[];
+  /** True once the user has pressed "Skip for now" on the create-org step. */
+  skippedOrgSetup?: boolean;
+};
+
+export default function Sidebar({ organizations, skippedOrgSetup = false }: Props) {
   const pathname = usePathname();
   const router = useRouter();
-  const { organizations, loading } = useOrganizations();
   const [checking, setChecking] = useState(false);
+
+  // Stay inside the currently-open organization rather than linking at the
+  // bare "/" and "/projects" redirectors. The URL/cookie org can be stale (you
+  // left it, or it was deleted), so fall back to an org you own, then to any
+  // org you're in, and only then to the create-organization flow — resolved
+  // right here, so these links never bounce through a redirect.
+  const currentOrgId = useCurrentOrgId(organizations);
+  const activeOrg =
+    organizations.find((o) => o.id === currentOrgId) ??
+    organizations.find((o) => o.myRole === "OWNER") ??
+    organizations[0];
+
+  // With no org at all there's nothing concrete to link to. Someone who has
+  // skipped org setup goes to the plain routes — which render their own empty
+  // state in that case — because pushing them back into the form they just
+  // dismissed is exactly what "Skip for now" is supposed to stop.
+  const noOrgHref = (base: string) => (skippedOrgSetup ? base : "/onboarding/create-organization");
+  const workspaceHref = activeOrg ? `/organizations/${activeOrg.id}` : noOrgHref("/");
+  const projectsHref = activeOrg ? `/organizations/${activeOrg.id}/projects` : noOrgHref("/projects");
 
   // Only an organization's OWNER may create projects in it — being invited
   // as a member only grants access to specific assigned projects, not the
   // right to add more. Re-fetch fresh (rather than trusting possibly-stale
-  // hook state) so a just-created organization is never missed here.
+  // props) so a just-created organization is never missed here.
   async function handleCreateProject() {
-    if (loading || checking) return;
+    if (checking) return;
     setChecking(true);
     try {
       const freshOrgs = await listOrganizationsAction().catch(() => organizations);
@@ -47,7 +72,7 @@ export default function Sidebar() {
       <div className="p-3 border-b border-zinc-100">
         <button
           onClick={handleCreateProject}
-          disabled={loading || checking}
+          disabled={checking}
           className="flex items-center justify-center gap-2 w-full rounded-lg bg-cyan-500 px-3 py-2 text-sm font-medium text-white hover:bg-cyan-600 transition disabled:opacity-60"
         >
           <Plus size={15} />
@@ -57,11 +82,18 @@ export default function Sidebar() {
 
       {/* Nav links */}
       <nav className="flex flex-col gap-0.5 p-3 flex-1">
-        {navItems.map(({ label, href, icon: Icon }) => {
-          const active = pathname === href || (href !== "/" && pathname.startsWith(href));
+        {navItems.map(({ label, href: baseHref, icon: Icon }) => {
+          const href = baseHref === "/" ? workspaceHref
+            : baseHref === "/projects" ? projectsHref
+            : baseHref;
+          const active = baseHref === "/"
+            ? pathname === "/" || /^\/organizations\/[^/]+$/.test(pathname)
+            : baseHref === "/projects"
+            ? pathname === "/projects" || /\/organizations\/[^/]+\/projects/.test(pathname)
+            : pathname === href || (href !== "/" && pathname.startsWith(href));
           return (
             <Link
-              key={href}
+              key={baseHref}
               href={href}
               className={[
                 "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition",

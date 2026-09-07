@@ -40,6 +40,12 @@ export async function deleteOrganizationAction(id: string) {
   return organizationService.delete(token, id);
 }
 
+export async function leaveOrganizationAction(id: string) {
+  const token = await getToken();
+  if (!token) throw new Error("Not authenticated");
+  return organizationService.leave(token, id);
+}
+
 export async function inviteToOrganizationAction(id: string, data: CreateInvitationInput) {
   const token = await getToken();
   if (!token) throw new Error("Not authenticated");

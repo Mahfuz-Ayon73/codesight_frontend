@@ -10,6 +10,8 @@ export interface User {
   isEnabled: boolean;
   createdAt?: string;
   updatedAt?: string;
+  /** Organization the user last switched to — used to resume in the same "tenant" on next login. */
+  lastOrganizationId?: string;
 }
 
 export interface SignInInput {

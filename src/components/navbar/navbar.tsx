@@ -7,12 +7,14 @@ import OrgSwitcher from "@/components/navbar/OrgSwitcher";
 import InviteDialog from "@/components/Organization/InviteDialog";
 import UserMenu from "@/components/navbar/UserMenu";
 import type { User } from "@/types/auth/auth.schema";
+import type { Organization } from "@/types/organization/organization.schema";
 
 type Props = {
   user: User | null;
+  organizations: Organization[];
 };
 
-export default function Navbar({ user }: Props) {
+export default function Navbar({ user, organizations }: Props) {
   const [inviteOpen, setInviteOpen] = useState(false);
 
   return (
@@ -26,7 +28,7 @@ export default function Navbar({ user }: Props) {
 
       {/* Center: Org switcher + Invite */}
       <div className="flex flex-1 items-center gap-3 max-w-xl">
-        <OrgSwitcher />
+        <OrgSwitcher organizations={organizations} />
         <button
           onClick={() => setInviteOpen(true)}
           className="flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-cyan-600 transition"
@@ -50,7 +52,11 @@ export default function Navbar({ user }: Props) {
         )}
       </div>
 
-      <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} />
+      <InviteDialog
+        open={inviteOpen}
+        onClose={() => setInviteOpen(false)}
+        organizations={organizations}
+      />
     </header>
   );
 }

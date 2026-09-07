@@ -8,12 +8,25 @@ export const EDGE_TYPE_COLORS = {
   RENDERS:             "rgba(6,182,212,0.85)",
   BELONGS_TO_DOMAIN:   "rgba(99,102,241,0.85)",
   SEMANTIC_SIMILARITY: "rgba(16,185,129,0.85)",
+  CALLS_API:           "rgba(244,114,182,0.85)",
+  EMITS_EVENT:         "rgba(251,146,60,0.85)",
+  PROVIDES_STATE:      "rgba(168,85,247,0.85)",
 } as const;
+
+// Runtime links the import graph cannot express — a shared URL, an event
+// name, or a context provider feeding its consumers. They carry weight 0.0
+// and are drawn dashed so an inferred hop never reads as a certain one.
+export const INFERRED_EDGE_TYPES: ReadonlySet<string> = new Set([
+  "CALLS_API", "EMITS_EVENT", "PROVIDES_STATE", "SEMANTIC_SIMILARITY",
+]);
 
 export interface EdgeFilterOptions {
   showRenders:            boolean;
   showBelongsToDomain:    boolean;
   showSemanticSimilarity: boolean;
+  showCallsApi:           boolean;
+  showEmitsEvent:         boolean;
+  showProvidesState:      boolean;
   showDeadImports:        boolean;
   overviewMaxEdges:       number;
 }
@@ -22,6 +35,9 @@ export const DEFAULT_EDGE_FILTERS: EdgeFilterOptions = {
   showRenders:            true,
   showBelongsToDomain:    true,
   showSemanticSimilarity: false,
+  showCallsApi:           true,
+  showEmitsEvent:         true,
+  showProvidesState:      true,
   showDeadImports:        false,
   overviewMaxEdges:       40,
 };
@@ -44,11 +60,15 @@ const FILE_NODE_W    = 224;
 const FILE_NODE_H    = 76;
 const DETAIL_PAD     = 60;
 const DETAIL_SPACING = 20;
-const FLOW_NODE_W = 224;
-const FLOW_NODE_H = 80;
-const FLOW_H_GAP  = 60;
-const FLOW_V_GAP  = 90;
-const FLOW_PAD    = 80;
+const FLOW_NODE_W  = 224;
+const FLOW_NODE_H  = 80;
+const FLOW_H_GAP   = 80;
+const FLOW_PAD     = 80;
+// Vertical gap between layers — large enough that edge midpoints (gap/2 from
+// the node bottom) sit in clear space and labels don't overlap nodes.
+const FLOW_V_GAP   = 120;
+// Extra top padding reserved for same-layer edge labels that arc above row 0
+const FLOW_TOP_PAD = 60;
 
 export function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
@@ -267,9 +287,10 @@ export function layoutFileFlow(
   for (const e of activeEdges) { participants.add(e.source); participants.add(e.target); }
 
   const useAll = participants.size === 0;
-  const flowChildren  = useAll ? members : members.filter((n) => participants.has(n.id));
-  const orphans       = useAll ? [] : members.filter((n) => !participants.has(n.id));
+  const flowChildren = useAll ? members : members.filter((n) => participants.has(n.id));
+  const orphans      = useAll ? [] : members.filter((n) => !participants.has(n.id));
 
+  // ── 1. Topological layering ──────────────────────────────────────────────
   const roleLayer: Record<string, number> = {
     ENTRY_POINT: 0, INTERNAL: 1, SHARED_DEPENDENCY: 1, TERMINAL_SINK: 2,
   };
@@ -300,13 +321,23 @@ export function layoutFileFlow(
     const arr = layerMap.get(depth) ?? []; arr.push(id); layerMap.set(depth, arr);
   }
   const sortedLayers = [...layerMap.keys()].sort((a, b) => a - b);
+
+  // 0-based layer index for each node
+  const nodeLayerIdx = new Map<string, number>();
+  sortedLayers.forEach((layer, idx) => {
+    for (const id of layerMap.get(layer)!) nodeLayerIdx.set(id, idx);
+  });
+
+  // ── 2. Node positions ─────────────────────────────────────────────────────
   let totalW = 0;
   for (const layer of sortedLayers) {
     const ids = layerMap.get(layer)!;
     totalW = Math.max(totalW, ids.length * FLOW_NODE_W + (ids.length - 1) * FLOW_H_GAP);
   }
+
   const posMap = new Map<string, { x: number; y: number }>();
-  let y = FLOW_PAD;
+  // Same-layer edges arc above their row — reserve extra top padding for layer 0
+  let y = FLOW_PAD + FLOW_TOP_PAD;
   for (const layer of sortedLayers) {
     const ids = layerMap.get(layer)!;
     const rowW = ids.length * FLOW_NODE_W + (ids.length - 1) * FLOW_H_GAP;
@@ -320,6 +351,7 @@ export function layoutFileFlow(
   const orphanStartX = (canvasW - (orphans.length * FLOW_NODE_W + (orphans.length - 1) * FLOW_H_GAP)) / 2;
   const canvasH = orphans.length > 0 ? orphanY + FLOW_NODE_H + FLOW_PAD : y + FLOW_PAD;
 
+  // ── 3. Build nodes ────────────────────────────────────────────────────────
   const flowNodes: Node[] = [
     {
       id: `${cluster.id}__bg`, type: "clusterGroup",
@@ -338,7 +370,6 @@ export function layoutFileFlow(
       },
     },
   ];
-
   for (const child of flowChildren) {
     flowNodes.push({
       id: child.id, type: "fileCard",
@@ -356,7 +387,17 @@ export function layoutFileFlow(
     });
   });
 
+  // ── 4. Build edges with labels ────────────────────────────────────────────
+  // Labels go directly on the edge (XYFlow renders them at the path midpoint).
+  // Inter-layer edges: midpoint sits in FLOW_V_GAP (120px) between rows —
+  //   60px below the source node bottom, well clear of both node boundaries.
+  // Same-layer edges: use edge type "default" (bezier) so the path arcs above
+  //   the row; the label follows the arc midpoint which is also above the row.
   const flowEdges: Edge[] = activeEdges.map((e) => {
+    const srcLIdx = nodeLayerIdx.get(e.source) ?? -1;
+    const tgtLIdx = nodeLayerIdx.get(e.target) ?? -1;
+    const sameLayer = srcLIdx === tgtLIdx;
+
     let label: string | undefined;
     if (e.called_names?.length) {
       const j = e.called_names.join(", ");
@@ -364,11 +405,27 @@ export function layoutFileFlow(
     } else if (e.binding) {
       label = e.binding.length > 32 ? e.binding.substring(0, 29) + "…" : e.binding;
     }
+
+    // Contract edges keep their own colour so an inferred HTTP/event hop is
+    // never mistaken for an import. Their called_names already carry the URL
+    // or event name, which becomes the edge label above.
+    const inferred  = INFERRED_EDGE_TYPES.has(e.type);
+    const typeColor = EDGE_TYPE_COLORS[e.type as keyof typeof EDGE_TYPE_COLORS];
+    const stroke    = inferred && typeColor ? typeColor : "rgba(6,182,212,0.9)";
+
     return {
       id: `flow-${e.source}-${e.target}`, source: e.source, target: e.target,
-      animated: true, type: "smoothstep",
-      style: { stroke: "rgba(6,182,212,0.9)", strokeWidth: 2 },
-      markerEnd: { type: "arrowclosed" as const, width: 16, height: 16, color: "rgba(6,182,212,0.9)" },
+      animated: true,
+      // Same-layer: bezier arc naturally puts midpoint above the row.
+      // Inter-layer: smoothstep midpoint lands in the gap between layers.
+      type: sameLayer ? "default" : "smoothstep",
+      // Same-layer source/target handles on the top so the arc goes upward
+      ...(sameLayer ? { sourceHandle: null, targetHandle: null } : {}),
+      style: {
+        stroke, strokeWidth: 2,
+        ...(inferred ? { strokeDasharray: "6 4" } : {}),
+      },
+      markerEnd: { type: "arrowclosed" as const, width: 16, height: 16, color: stroke },
       label,
       labelStyle: { fill: "#67e8f9", fontSize: 10, fontWeight: 700, fontFamily: "monospace" },
       labelBgStyle: { fill: "rgba(8,20,30,0.95)", stroke: "rgba(6,182,212,0.4)", strokeWidth: 1 },
@@ -385,3 +442,5 @@ export function layoutFileFlow(
 
   return { nodes: flowNodes, edges: flowEdges };
 }
+
+

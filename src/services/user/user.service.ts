@@ -13,4 +13,11 @@ export const userService = {
       headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify({ currentPassword, newPassword }),
     }),
+
+  setLastOrganization: (token: string, organizationId: string) =>
+    apiFetch<{ message: string }>("/api/v1/users/last-organization", {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ organizationId }),
+    }),
 };

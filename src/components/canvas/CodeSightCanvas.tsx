@@ -9,10 +9,11 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import type { Blueprint, BlueprintNode } from "@/types/project/project.schema";
+import type { Blueprint, BlueprintNode, DiffStatus } from "@/types/project/project.schema";
 import {
   buildClusterIndex, layoutClusterPills, layoutFileDetail, layoutFileFlow,
-  CLUSTER_COLORS, clamp, EDGE_TYPE_COLORS, DEFAULT_EDGE_FILTERS, type EdgeFilterOptions,
+  CLUSTER_COLORS, clamp, EDGE_TYPE_COLORS, INFERRED_EDGE_TYPES,
+  DEFAULT_EDGE_FILTERS, type EdgeFilterOptions,
 } from "./useD3Layout";
 import { computeClusterRelationships } from "./useClusterRelationships";
 import { clusterDomainKey, formatDomainLabel, getDomainStyle, UNCLASSIFIED_DOMAIN_KEY } from "./domainStyles";
@@ -20,14 +21,22 @@ import ClusterGroupNode from "./ClusterGroupNode";
 import FileCardNode from "./FileCardNode";
 import EdgeFilterPanel from "./EdgeFilterPanel";
 import DomainFilterPanel from "./DomainFilterPanel";
+import OwnershipFilterPanel from "./OwnershipFilterPanel";
+import { useClusterOwnership } from "./useClusterOwnership";
+import { getOwnerStyle } from "./ownershipStyles";
 import CodeViewerPanel from "./CodeViewerPanel";
+import ClusterSummaryPanel from "./ClusterSummaryPanel";
 import { type EdgeDiffSelection } from "./EdgeDiffPanel";
 import {
   useClusterMerges, applyMerges, suggestMerges, type ClusterMerge,
 } from "./useClusterMerges";
+import { useClusterOverrides } from "./useClusterOverrides";
+import { useClusterNotes } from "./useClusterNotes";
+import { exportCanvasAsPng, exportGraphAsDrawio } from "./exportGraph";
 import {
   Layers, FileCode, GitBranch, ArrowLeft, Info, Link2, Unlink,
   ChevronRight, ChevronLeft, GitMerge, Sparkles, Check, X, Tag,
+  Download, Image as ImageIcon, Play,
 } from "lucide-react";
 
 const NODE_TYPES = { clusterGroup: ClusterGroupNode, fileCard: FileCardNode };
@@ -68,15 +77,23 @@ interface NavEntry {
 // Inner canvas
 // ---------------------------------------------------------------------------
 function InnerCanvas({
-  blueprint, projectId, orgId, onEdgeSelect,
+  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters, canAddNotes, currentUserId, diffOverlay,
 }: {
   blueprint: Blueprint;
   projectId: string;
   orgId?: string;
   onEdgeSelect?: (selection: EdgeDiffSelection | null) => void;
+  onStartTour?: () => void;
+  canEditClusters?: boolean;
+  /** MEMBER/ADMIN/OWNER — enables adding a note in the cluster summary panel; VIEWER can still read. */
+  canAddNotes?: boolean;
+  currentUserId?: string | null;
+  /** Commit diff overlay — maps canonical_path to a DiffStatus. Null/empty when no commit is selected. */
+  diffOverlay?: Map<string, DiffStatus> | null;
 }) {
-  const { fitView } = useReactFlow();
+  const { fitView, getNodes, getEdges } = useReactFlow();
   const overridesRef = useRef<UserOverrides>(loadOverrides(projectId));
+  const canvasWrapperRef = useRef<HTMLDivElement>(null);
 
   // Pre-build the full cluster index once
   const index = useMemo(() => buildClusterIndex(blueprint), [blueprint]);
@@ -90,6 +107,14 @@ function InnerCanvas({
   const [viewMode, setViewMode]       = useState<ViewMode>("cluster-list");
   const [activeLeaf, setActiveLeaf]   = useState<string | null>(null);
   const [flowActive, setFlowActive]   = useState(false);
+  const [showAllFlowEdges, setShowAllFlowEdges] = useState(true);
+  const [selectedFlowEntry, setSelectedFlowEntry] = useState<string | null>(null);
+
+  // Reset flow-trace selection whenever flow mode is toggled off or the leaf changes
+  useEffect(() => {
+    if (!flowActive) { setSelectedFlowEntry(null); setShowAllFlowEdges(true); }
+  }, [flowActive]);
+  useEffect(() => { setSelectedFlowEntry(null); }, [activeLeaf]);
   const [connectivity, setConnectivity] = useState<ReturnType<typeof computeClusterRelationships> | null>(null);
   // File node clicked in structure/flow view — opens the code preview panel.
   const [selectedFileNode, setSelectedFileNode] = useState<BlueprintNode | null>(null);
@@ -117,9 +142,27 @@ function InnerCanvas({
   // Domain spotlight filter (empty = show all) + domain-based pill coloring.
   const [selectedDomains, setSelectedDomains] = useState<Set<string>>(new Set());
   const [colorByDomain, setColorByDomain]     = useState(false);
+  // Ownership spotlight filter + owner-based pill coloring. Data is fetched
+  // lazily (git blame isn't free) — see ownershipEnabled below.
+  const [selectedOwners, setSelectedOwners]   = useState<Set<string>>(new Set());
+  const [colorByOwner, setColorByOwner]       = useState(false);
+  const [ownershipEnabled, setOwnershipEnabled] = useState(false);
+  const { ownership, load: loadOwnership, loading: ownershipLoading, error: ownershipError } =
+    useClusterOwnership(orgId ?? "", projectId);
 
   // Merge persistence
   const { merges, addMerge, removeMerge } = useClusterMerges(orgId ?? "", projectId);
+  // Cluster name overrides — resolves the latest snapshot, loads any active
+  // renames, and exposes saveTitle for the double-click-to-rename UI below.
+  const {
+    overrides, saveTitle: saveClusterTitle, saveSummary: saveClusterSummary, savingIds: overrideSavingIds,
+  } = useClusterOverrides(orgId ?? "", projectId);
+  // Collaborative cluster notes (SRS 2.2.9) — MEMBER-tier, additive, separate
+  // from the ADMIN/OWNER-only title/summary override above.
+  const {
+    notesByCluster, addNote: addClusterNote, deleteNote: deleteClusterNote, saving: noteSaving,
+  } = useClusterNotes(orgId ?? "", projectId);
+  const [summaryClusterId, setSummaryClusterId] = useState<string | null>(null);
 
   // ---------------------------------------------------------------------------
   // Visible clusters — respects merged-group nav entries
@@ -158,6 +201,9 @@ function InnerCanvas({
       if (type === "RENDERS") return edgeFilters.showRenders;
       if (type === "BELONGS_TO_DOMAIN") return edgeFilters.showBelongsToDomain;
       if (type === "SEMANTIC_SIMILARITY") return edgeFilters.showSemanticSimilarity;
+      if (type === "CALLS_API") return edgeFilters.showCallsApi;
+      if (type === "EMITS_EVENT") return edgeFilters.showEmitsEvent;
+      if (type === "PROVIDES_STATE") return edgeFilters.showProvidesState;
       return true;
     };
 
@@ -188,7 +234,12 @@ function InnerCanvas({
       const color = EDGE_TYPE_COLORS[dominantType as keyof typeof EDGE_TYPE_COLORS] ?? "rgba(99,102,241,0.45)";
       result.push({
         id: `macro-${sc}-${tc}`, source: sc, target: tc, animated: false,
-        style: { stroke: color, strokeWidth: clamp(weight * 0.15, 1.5, 6) },
+        style: {
+          stroke: color,
+          strokeWidth: clamp(weight * 0.15, 1.5, 6),
+          // Inferred links are dashed so a guessed connection never reads as a fact.
+          ...(INFERRED_EDGE_TYPES.has(dominantType) ? { strokeDasharray: "6 4" } : {}),
+        },
         data: { weight, isMacro: true, dominantType },
       });
     }
@@ -250,6 +301,77 @@ function InnerCanvas({
   // ---------------------------------------------------------------------------
   const mergeById = useMemo(() => new Map(activeMerges.map((m) => [m.id, m])), [activeMerges]);
 
+  // All descendant file paths per real (non-synthetic) cluster id — used to
+  // aggregate the commit diff overlay up to the pill level without re-walking
+  // the tree on every render.
+  const clusterFilePaths = useMemo(() => {
+    const map = new Map<string, string[]>();
+    function collect(cid: string): string[] {
+      const cached = map.get(cid);
+      if (cached) return cached;
+      const direct = (index.nodesOf.get(cid) ?? []).map((n) => n.canonical_path);
+      const childPaths = (index.childrenOf.get(cid) ?? []).flatMap((c) => collect(c.id));
+      const all = [...direct, ...childPaths];
+      map.set(cid, all);
+      return all;
+    }
+    for (const c of blueprint.clusters) collect(c.id);
+    return map;
+  }, [index, blueprint.clusters]);
+
+  // Diff counts per visible pill (real or merged), keyed the same as baseNodes.
+  const clusterDiffCounts = useMemo(() => {
+    const map = new Map<string, { added: number; modified: number; deleted: number }>();
+    if (!diffOverlay || diffOverlay.size === 0) return map;
+    for (const cluster of virtualClusters) {
+      const merge = mergeById.get(cluster.id);
+      const paths = merge
+        ? merge.sourceIds.flatMap((sid) => clusterFilePaths.get(sid) ?? [])
+        : (clusterFilePaths.get(cluster.id) ?? []);
+      let added = 0, modified = 0, deleted = 0;
+      for (const p of paths) {
+        const s = diffOverlay.get(p);
+        if (s === "added") added++;
+        else if (s === "modified" || s === "moved") modified++;
+        else if (s === "deleted") deleted++;
+      }
+      if (added + modified + deleted > 0) map.set(cluster.id, { added, modified, deleted });
+    }
+    return map;
+  }, [virtualClusters, mergeById, clusterFilePaths, diffOverlay]);
+
+  // Primary owner per visible pill — sums each author's blamed-line count
+  // across every file in the cluster (not a per-file majority vote, so a
+  // cluster's owner reflects who wrote the most code in it overall).
+  const clusterOwnership = useMemo(() => {
+    const map = new Map<string, { ownerName: string; ownerPercentage: number; ownerCount: number }>();
+    if (ownership.size === 0) return map;
+    for (const cluster of virtualClusters) {
+      const merge = mergeById.get(cluster.id);
+      const paths = merge
+        ? merge.sourceIds.flatMap((sid) => clusterFilePaths.get(sid) ?? [])
+        : (clusterFilePaths.get(cluster.id) ?? []);
+      const lineTotals = new Map<string, number>();
+      let total = 0;
+      for (const p of paths) {
+        const fo = ownership.get(p);
+        if (!fo) continue;
+        for (const author of fo.authors) {
+          lineTotals.set(author.name, (lineTotals.get(author.name) ?? 0) + author.lines);
+          total += author.lines;
+        }
+      }
+      if (total === 0) continue;
+      const [ownerName, ownerLines] = [...lineTotals.entries()].sort((a, b) => b[1] - a[1])[0];
+      map.set(cluster.id, {
+        ownerName,
+        ownerPercentage: (ownerLines / total) * 100,
+        ownerCount: lineTotals.size,
+      });
+    }
+    return map;
+  }, [virtualClusters, mergeById, clusterFilePaths, ownership]);
+
   // Cluster-list NODE positions — deliberately does not depend on edges or
   // domain filters, so toggling either panel doesn't retrigger the d3 force
   // simulation or re-fit the view (positions haven't changed, only styling).
@@ -262,19 +384,26 @@ function InnerCanvas({
     return pillNodes.map((n) => {
       const cid = n.data.clusterId as string;
       const merge = mergeById.get(cid);
+      // Merged/virtual clusters (synthetic ids, not real blueprint clusters)
+      // aren't renameable — there's no single clusterId to attach the override to.
+      const override = merge ? undefined : overrides.get(cid);
       return {
         ...n,
         data: {
           ...n.data,
+          label:       override?.overrideTitle ?? n.data.label,
           isMultiSelected: selectedClusterIds.has(cid),
           isMerged:    !!merge,
           mergedCount: merge?.sourceIds.length,
           onUnmerge:   merge ? removeMerge : undefined,
           hideName:    inMergedGroup,
+          canEditTitle: !merge && canEditClusters,
+          onSaveTitle:  !merge && canEditClusters ? saveClusterTitle : undefined,
+          onOpenSummary: merge ? undefined : setSummaryClusterId,
         },
       };
     });
-  }, [viewMode, virtualClusters, index, colorOffset, fileCountOverride, mergeById, selectedClusterIds, removeMerge, currentEntry.isMergedGroup]);
+  }, [viewMode, virtualClusters, index, colorOffset, fileCountOverride, mergeById, selectedClusterIds, removeMerge, currentEntry.isMergedGroup, overrides, canEditClusters, saveClusterTitle]);
 
   // Re-fit only when the layout itself changed, not on styling passes.
   useEffect(() => {
@@ -283,27 +412,44 @@ function InnerCanvas({
     return () => clearTimeout(t);
   }, [viewMode, baseNodes, fitView]);
 
-  // Domain styling pass — recolors/dims the laid-out pills without touching
-  // positions (same trick as the edge-filter split below).
+  // Domain + ownership + diff styling pass — recolors/dims the laid-out
+  // pills without touching positions (same trick as the edge-filter split below).
   useEffect(() => {
     if (viewMode !== "cluster-list") return;
     const filterActive = selectedDomains.size > 0;
-    if (!filterActive && !colorByDomain) { setNodes(baseNodes); return; }
+    const ownerFilterActive = selectedOwners.size > 0;
+    const diffActive = !!diffOverlay && diffOverlay.size > 0;
+    const ownerDataLoaded = clusterOwnership.size > 0;
+    if (!filterActive && !colorByDomain && !diffActive && !ownerFilterActive && !colorByOwner && !ownerDataLoaded) {
+      setNodes(baseNodes);
+      return;
+    }
     setNodes(baseNodes.map((n) => {
+      const cid = n.data.clusterId as string;
       const domain = (n.data.domain as string | null) ?? null;
-      const key = domainKeyByClusterId.get(n.data.clusterId as string) ?? UNCLASSIFIED_DOMAIN_KEY;
-      const dimmed = filterActive && !selectedDomains.has(key);
-      const ds = colorByDomain ? getDomainStyle(domain) : null;
+      const key = domainKeyByClusterId.get(cid) ?? UNCLASSIFIED_DOMAIN_KEY;
+      const diffCounts = clusterDiffCounts.get(cid) ?? null;
+      const owner = clusterOwnership.get(cid) ?? null;
+      const dimmed =
+        (filterActive && !selectedDomains.has(key)) ||
+        (diffActive && !diffCounts) ||
+        (ownerFilterActive && !(owner && selectedOwners.has(owner.ownerName)));
+      const ds = colorByDomain ? getDomainStyle(domain) : (colorByOwner && owner ? getOwnerStyle(owner.ownerName) : null);
       return {
         ...n,
         data: {
           ...n.data,
           dimmed,
+          diffCounts,
+          ownerName:       owner?.ownerName ?? null,
+          ownerPercentage: owner?.ownerPercentage,
+          ownerCount:      owner?.ownerCount,
           ...(ds ? { colorBg: ds.pillBg, colorBorder: ds.pillBorder } : {}),
         },
       };
     }));
-  }, [viewMode, baseNodes, selectedDomains, colorByDomain, domainKeyByClusterId, setNodes]);
+  }, [viewMode, baseNodes, selectedDomains, colorByDomain, domainKeyByClusterId, clusterDiffCounts, diffOverlay,
+      selectedOwners, colorByOwner, clusterOwnership, setNodes]);
 
   // Cluster-list EDGES — split out so edge-filter/cap changes are just a cheap
   // setEdges, not a full re-layout. Edges touching a domain-dimmed cluster fade
@@ -336,11 +482,53 @@ function InnerCanvas({
       const { nodes: fn, edges: fe } = layoutFileFlow(cluster, members, blueprint.edges, ci);
       const rel = computeClusterRelationships(activeLeaf, blueprint, edgeColor, true);
       setConnectivity(rel);
+
+      // Build reachable-node set from the selected entry (BFS over active edges)
+      const reachableFromEntry = new Set<string>();
+      if (!showAllFlowEdges && selectedFlowEntry) {
+        const memberSet = new Set(members.map((m) => m.id));
+        const activeEdges = blueprint.edges.filter(
+          (e) => memberSet.has(e.source) && memberSet.has(e.target) && !e.is_dead_import
+        );
+        const adjFwd = new Map<string, string[]>();
+        for (const e of activeEdges) {
+          const arr = adjFwd.get(e.source) ?? []; arr.push(e.target); adjFwd.set(e.source, arr);
+        }
+        const bfsQueue = [selectedFlowEntry];
+        reachableFromEntry.add(selectedFlowEntry);
+        while (bfsQueue.length) {
+          const cur = bfsQueue.shift()!;
+          for (const next of adjFwd.get(cur) ?? []) {
+            if (!reachableFromEntry.has(next)) { reachableFromEntry.add(next); bfsQueue.push(next); }
+          }
+        }
+      }
+
       setNodes(fn.map((n) => {
         const conn = rel.connectivity.get(n.id);
-        return !conn || n.type !== "fileCard" ? n : { ...n, data: { ...n.data, isFlowOrphan: conn.isFlowOrphan, edgeCount: conn.edgeCount, flowActive: true } };
+        const base = !conn || n.type !== "fileCard" ? n : {
+          ...n, data: { ...n.data, isFlowOrphan: conn.isFlowOrphan, edgeCount: conn.edgeCount, flowActive: true },
+        };
+        if (n.type !== "fileCard") return base;
+        const dimmed = !showAllFlowEdges && selectedFlowEntry && !reachableFromEntry.has(n.id);
+        return {
+          ...base,
+          data: {
+            ...base.data,
+            showAllEdges: showAllFlowEdges,
+            isSelectedEntry: n.id === selectedFlowEntry,
+            onSelectFlow: () => setSelectedFlowEntry((prev) => prev === n.id ? null : n.id),
+            diffStatus: diffOverlay?.get(base.data.canonical_path as string),
+            ...(dimmed ? { isFlowOrphan: true } : {}),
+          },
+        };
       }));
-      setEdges(fe);
+
+      // Filter edges to only those on paths from selected entry when not showing all
+      const filteredEdges = (!showAllFlowEdges && selectedFlowEntry)
+        ? fe.filter((e) => reachableFromEntry.has(e.source) && reachableFromEntry.has(e.target))
+        : fe;
+      setEdges(filteredEdges);
     } else {
       const { nodes: dn, edges: de } = layoutFileDetail(cluster, members, blueprint.edges, ci);
       const rel = computeClusterRelationships(activeLeaf, blueprint, edgeColor, false);
@@ -348,13 +536,15 @@ function InnerCanvas({
       const severedIds = new Set(overridesRef.current.severedEdges.map((s) => s.edgeId));
       setNodes(dn.map((n) => {
         const conn = rel.connectivity.get(n.id);
-        return !conn ? n : { ...n, data: { ...n.data, isOrphan: conn.isOrphan, edgeCount: conn.edgeCount, flowActive: false } };
+        const diffStatus = n.type === "fileCard" ? diffOverlay?.get(n.data.canonical_path as string) : undefined;
+        if (!conn && !diffStatus) return n;
+        return { ...n, data: { ...n.data, ...(conn ? { isOrphan: conn.isOrphan, edgeCount: conn.edgeCount, flowActive: false } : {}), diffStatus } };
       }));
       setEdges(de.filter((e) => !severedIds.has(e.id)));
     }
     setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 60);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, activeLeaf, flowActive, index, blueprint, colorOffset, fitView, setNodes, setEdges, onEdgeSelect]);
+  }, [viewMode, activeLeaf, flowActive, showAllFlowEdges, selectedFlowEntry, index, blueprint, colorOffset, fitView, setNodes, setEdges, onEdgeSelect, diffOverlay]);
 
   // ---------------------------------------------------------------------------
   // Click handler
@@ -499,6 +689,29 @@ function InnerCanvas({
     [setEdges]
   );
 
+  // ---------------------------------------------------------------------------
+  // Export — current view only (whatever level/mode is on screen right now)
+  // ---------------------------------------------------------------------------
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportPng = useCallback(async () => {
+    const viewportEl = canvasWrapperRef.current?.querySelector(".react-flow__viewport") as HTMLElement | null;
+    if (!viewportEl) return;
+    setExporting(true);
+    try {
+      await exportCanvasAsPng(viewportEl, getNodes(), `codesight-${projectId}.png`);
+    } finally {
+      setExporting(false);
+      setExportOpen(false);
+    }
+  }, [getNodes, projectId]);
+
+  const handleExportDrawio = useCallback(() => {
+    exportGraphAsDrawio(getNodes(), getEdges(), `codesight-${projectId}.drawio`);
+    setExportOpen(false);
+  }, [getNodes, getEdges, projectId]);
+
   const meta           = blueprint.project_metadata;
   const isRoot         = navStack.length === 1 && viewMode === "cluster-list";
   const activeCluster  = activeLeaf ? index.clusterById.get(activeLeaf) : null;
@@ -507,7 +720,7 @@ function InnerCanvas({
 
   return (
     <div className="relative w-full h-full rounded-2xl overflow-hidden flex flex-col" style={{ background: "#080810" }}>
-      <div className="relative flex-1 min-h-0">
+      <div className="relative flex-1 min-h-0" ref={canvasWrapperRef}>
       <ReactFlow
         nodes={nodes} edges={edges}
         nodeTypes={NODE_TYPES}
@@ -573,6 +786,31 @@ function InnerCanvas({
                   </button>
                 </div>
 
+                {/* Show-all-edges toggle — only visible in flow mode */}
+                {flowActive && (
+                  <label
+                    className="flex items-center gap-1.5 ml-1 cursor-pointer select-none"
+                    title="When unchecked, click 'trace flow' on any entry node to highlight its paths"
+                  >
+                    <div
+                      onClick={() => { setShowAllFlowEdges((v) => !v); setSelectedFlowEntry(null); }}
+                      className="w-3.5 h-3.5 rounded flex items-center justify-center transition-all"
+                      style={{
+                        background: showAllFlowEdges ? "rgba(6,182,212,0.8)" : "rgba(255,255,255,0.06)",
+                        border: `1px solid ${showAllFlowEdges ? "rgba(6,182,212,0.9)" : "rgba(255,255,255,0.15)"}`,
+                      }}
+                    >
+                      {showAllFlowEdges && (
+                        <svg width="7" height="5" viewBox="0 0 7 5" fill="none">
+                          <path d="M1 2.5L2.8 4.2L6 1" stroke="white" strokeWidth="1.4"
+                                strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-white/50">all edges</span>
+                  </label>
+                )}
+
                 {connectivity && (
                   <>
                     <span className="text-white/15 ml-1">|</span>
@@ -622,9 +860,67 @@ function InnerCanvas({
           </div>
         </Panel>
 
-        {/* Top-right: hint + merge controls */}
+        {/* Top-right: export, hint + merge controls */}
         <Panel position="top-right">
           <div className="flex flex-col items-end gap-2">
+
+            {/* Guided walkthrough. Lives in this stack rather than floating at
+                top-left, where it sat on top of the breadcrumb's Back button. */}
+            {onStartTour && (
+              <button
+                onClick={onStartTour}
+                title="Walk the codebase from its entry point"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-semibold transition-all"
+                style={{
+                  background:     "rgba(99,102,241,0.85)",
+                  border:         "1px solid rgba(129,140,248,0.55)",
+                  backdropFilter: "blur(14px)",
+                  color:          "#fff",
+                }}
+              >
+                <Play size={9} />
+                Start tour
+              </button>
+            )}
+
+            {/* Export current view — PNG snapshot or editable draw.io XML */}
+            <div className="relative">
+              <button
+                onClick={() => setExportOpen((v) => !v)}
+                disabled={exporting}
+                title="Export the current view"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-semibold transition-all disabled:opacity-50"
+                style={{
+                  background:     exportOpen ? "rgba(99,102,241,0.20)" : "rgba(8,8,16,0.88)",
+                  border:         `1px solid ${exportOpen ? "rgba(99,102,241,0.45)" : "rgba(255,255,255,0.07)"}`,
+                  backdropFilter: "blur(14px)",
+                  color:          exportOpen ? "rgba(165,180,252,0.95)" : "rgba(255,255,255,0.40)",
+                }}
+              >
+                <Download size={9} />
+                {exporting ? "Exporting…" : "Export"}
+              </button>
+
+              {exportOpen && (
+                <div
+                  className="absolute top-full mt-1.5 right-0 flex flex-col gap-0.5 py-1.5 rounded-xl min-w-[172px] z-50"
+                  style={{ background: "rgba(8,8,16,0.96)", border: "1px solid rgba(255,255,255,0.08)", backdropFilter: "blur(14px)" }}
+                >
+                  <button
+                    onClick={handleExportPng}
+                    className="flex items-center gap-2 px-3 py-1.5 text-[10px] text-white/70 hover:bg-white/5 hover:text-white transition-colors text-left"
+                  >
+                    <ImageIcon size={11} className="text-emerald-400" /> PNG image
+                  </button>
+                  <button
+                    onClick={handleExportDrawio}
+                    className="flex items-center gap-2 px-3 py-1.5 text-[10px] text-white/70 hover:bg-white/5 hover:text-white transition-colors text-left"
+                  >
+                    <FileCode size={11} className="text-indigo-400" /> draw.io XML
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Merge-selected prompt */}
             {pendingMergeName !== null && (
@@ -737,6 +1033,30 @@ function InnerCanvas({
                 onSelectedChange={setSelectedDomains}
                 colorByDomain={colorByDomain}
                 onColorByDomainChange={setColorByDomain}
+              />
+            )}
+            {viewMode === "cluster-list" && (
+              <OwnershipFilterPanel
+                clusterOwners={virtualClusters.map((c) => {
+                  const o = clusterOwnership.get(c.id);
+                  return {
+                    clusterId: c.id,
+                    ownerName: o?.ownerName ?? null,
+                    ownerPercentage: o?.ownerPercentage ?? 0,
+                    ownerCount: o?.ownerCount ?? 0,
+                  };
+                })}
+                selected={selectedOwners}
+                onSelectedChange={setSelectedOwners}
+                colorByOwner={colorByOwner}
+                onColorByOwnerChange={setColorByOwner}
+                enabled={ownershipEnabled}
+                onEnableChange={(v) => {
+                  setOwnershipEnabled(v);
+                  if (v) loadOwnership(blueprint.nodes.map((n) => n.canonical_path));
+                }}
+                loading={ownershipLoading}
+                error={ownershipError}
               />
             )}
             <EdgeFilterPanel
@@ -867,6 +1187,20 @@ function InnerCanvas({
         projectId={projectId}
         onClose={() => setSelectedFileNode(null)}
       />
+      <ClusterSummaryPanel
+        cluster={summaryClusterId ? index.clusterById.get(summaryClusterId) ?? null : null}
+        override={summaryClusterId ? overrides.get(summaryClusterId) : undefined}
+        canEdit={!!canEditClusters}
+        saving={summaryClusterId ? overrideSavingIds.has(summaryClusterId) : false}
+        onSave={saveClusterSummary}
+        onClose={() => setSummaryClusterId(null)}
+        notes={summaryClusterId ? notesByCluster.get(summaryClusterId) ?? [] : []}
+        canAddNotes={!!canAddNotes}
+        currentUserId={currentUserId ?? null}
+        savingNote={noteSaving}
+        onAddNote={addClusterNote}
+        onDeleteNote={deleteClusterNote}
+      />
       </div>
     </div>
   );
@@ -876,12 +1210,21 @@ function InnerCanvas({
 // Public export
 // ---------------------------------------------------------------------------
 export default function CodeSightCanvas({
-  blueprint, projectId, orgId, onEdgeSelect,
+  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters, canAddNotes, currentUserId, diffOverlay,
 }: {
   blueprint: Blueprint;
   projectId: string;
   orgId?: string;
   onEdgeSelect?: (selection: EdgeDiffSelection | null) => void;
+  /** Omit to hide the Start-tour control (e.g. analyses with no entry points). */
+  onStartTour?: () => void;
+  /** ADMIN/OWNER only — enables double-click-to-rename on cluster pills. */
+  canEditClusters?: boolean;
+  /** MEMBER/ADMIN/OWNER — enables adding a note in the cluster summary panel; VIEWER can still read. */
+  canAddNotes?: boolean;
+  currentUserId?: string | null;
+  /** Commit diff overlay — maps canonical_path to a DiffStatus. Null/empty when no commit is selected. */
+  diffOverlay?: Map<string, DiffStatus> | null;
 }) {
   const [ready, setReady] = useState(false);
 
@@ -905,7 +1248,9 @@ export default function CodeSightCanvas({
     <ReactFlowProvider>
       <InnerCanvas
         blueprint={blueprint} projectId={projectId} orgId={orgId}
-        onEdgeSelect={onEdgeSelect}
+        onEdgeSelect={onEdgeSelect} onStartTour={onStartTour} canEditClusters={canEditClusters}
+        canAddNotes={canAddNotes} currentUserId={currentUserId}
+        diffOverlay={diffOverlay}
       />
     </ReactFlowProvider>
   );

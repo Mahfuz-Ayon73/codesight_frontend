@@ -1,19 +1,30 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { AlertTriangle, X } from "lucide-react";
-import { deleteOrganizationAction } from "@/actions/organization.action";
+import { deleteOrganizationAction, listOrganizationsAction } from "@/actions/organization.action";
+import { CURRENT_ORG_COOKIE, deleteCookie, getCookie } from "@/utils/cookie";
+import { nextOrgDestination } from "@/utils/organization";
 
 type Props = {
   organizationId: string;
   organizationName: string;
   open: boolean;
   onClose: () => void;
+  /** Where to navigate after a successful delete. Pass `null` to stay on the current page and just refresh it — unless this was the org you were in, in which case the next org is resolved for you. */
+  redirectTo?: string | null;
 };
 
-export default function DeleteOrganizationDialog({ organizationId, organizationName, open, onClose }: Props) {
+export default function DeleteOrganizationDialog({
+  organizationId,
+  organizationName,
+  open,
+  onClose,
+  redirectTo = null,
+}: Props) {
   const router = useRouter();
+  const pathname = usePathname();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -22,8 +33,29 @@ export default function DeleteOrganizationDialog({ organizationId, organizationN
     setError(null);
     try {
       await deleteOrganizationAction(organizationId);
-      router.push("/projects");
-      router.refresh();
+      // Otherwise the switcher/sidebar keep pointing at this now-deleted org.
+      const wasCurrent =
+        getCookie(CURRENT_ORG_COOKIE) === organizationId ||
+        pathname.startsWith(`/organizations/${organizationId}`);
+      if (wasCurrent) deleteCookie(CURRENT_ORG_COOKIE);
+      // Close explicitly — when staying on the current page, refresh() alone
+      // won't unmount this client component, so it'd otherwise sit open
+      // forever showing a stale "Deleting…" state.
+      onClose();
+      if (redirectTo) {
+        router.push(redirectTo);
+      } else if (wasCurrent) {
+        // The org you were in is gone, so resolve where to go from the list as
+        // it stands *after* the delete and navigate straight there — your own
+        // org, else any org you're still in, else the create-organization
+        // flow. Deliberately not "/" or "/projects": those re-resolve the
+        // target server-side, which raced this delete and bounced the app
+        // between routes.
+        const remaining = await listOrganizationsAction().catch(() => []);
+        router.push(nextOrgDestination(remaining));
+      } else {
+        router.refresh();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete organization");
       setLoading(false);
