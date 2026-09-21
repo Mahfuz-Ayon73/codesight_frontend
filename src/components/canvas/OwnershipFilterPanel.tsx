@@ -23,6 +23,7 @@ interface Props {
   onEnableChange:        (v: boolean) => void;
   loading:               boolean;
   error:                 string | null;
+  theme?:                "dark" | "light";
 }
 
 interface OwnerRow {
@@ -33,9 +34,10 @@ interface OwnerRow {
 
 export default function OwnershipFilterPanel({
   clusterOwners, selected, onSelectedChange, colorByOwner, onColorByOwnerChange,
-  enabled, onEnableChange, loading, error,
+  enabled, onEnableChange, loading, error, theme = "dark",
 }: Props) {
   const [open, setOpen] = useState(false);
+  const isLight = theme === "light";
 
   const rows = useMemo<OwnerRow[]>(() => {
     const acc = new Map<string, OwnerRow>();
@@ -60,8 +62,8 @@ export default function OwnershipFilterPanel({
   const nonDefaultCount = selected.size + (colorByOwner ? 1 : 0);
 
   const panelStyle = {
-    background:     "rgba(8,8,16,0.92)",
-    border:         "1px solid rgba(255,255,255,0.08)",
+    background:     isLight ? "rgba(255,255,255,0.97)" : "rgba(8,8,16,0.92)",
+    border:         `1px solid ${isLight ? "rgba(6,182,212,0.48)" : "rgba(255,255,255,0.08)"}`,
     backdropFilter: "blur(14px)",
   } as const;
 
@@ -73,7 +75,7 @@ export default function OwnershipFilterPanel({
   );
 
   return (
-    <div className="flex flex-col items-end gap-1.5">
+    <div className={`flex flex-col items-end gap-1.5 ${isLight ? "canvas-filter-light" : ""}`}>
       {open && (
         <div className="rounded-xl px-3 py-2.5 flex flex-col gap-2 min-w-[196px] max-h-64 overflow-y-auto" style={panelStyle}>
           {/* Header */}
@@ -192,10 +194,10 @@ export default function OwnershipFilterPanel({
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-all"
         style={{
-          background:     open ? "rgba(99,102,241,0.22)" : "rgba(8,8,16,0.88)",
-          border:         `1px solid ${open ? "rgba(99,102,241,0.50)" : "rgba(255,255,255,0.08)"}`,
+          background:     open ? "rgba(99,102,241,0.22)" : (isLight ? "rgba(255,255,255,0.97)" : "rgba(8,8,16,0.88)"),
+          border:         `1px solid ${open ? "rgba(99,102,241,0.50)" : (isLight ? "rgba(6,182,212,0.48)" : "rgba(255,255,255,0.08)")}`,
           backdropFilter: "blur(14px)",
-          color:          open ? "rgba(99,102,241,0.90)" : "rgba(255,255,255,0.50)",
+          color:          open ? (isLight ? "#4338ca" : "rgba(99,102,241,0.90)") : (isLight ? "#334155" : "rgba(255,255,255,0.50)"),
         }}
       >
         <Users size={11} />

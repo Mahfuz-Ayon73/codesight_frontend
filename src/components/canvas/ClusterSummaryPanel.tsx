@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, HelpCircle, Layers, Trash2, X, XCircle } from "lucide-react";
+import { CheckCircle2, HelpCircle, Layers, Lightbulb, Trash2, X, XCircle } from "lucide-react";
 import type { BlueprintCluster, ClusterNote, ClusterOverride } from "@/types/project/project.schema";
 import { getDomainStyle, formatDomainLabel } from "./domainStyles";
 
@@ -137,6 +137,26 @@ export default function ClusterSummaryPanel({
                 <p className="text-[10px] leading-relaxed text-zinc-500 italic">
                   “{cluster.domain_llm_reason}”
                 </p>
+              )}
+
+              {cluster.domain_llm_suggested_name && (
+                <div
+                  className="rounded-lg px-3 py-2 flex flex-col gap-1"
+                  style={{ background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.18)" }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Lightbulb size={11} className="text-indigo-400 shrink-0" />
+                    <span className="text-[9px] font-semibold uppercase tracking-wide text-indigo-300">
+                      LLM-suggested domain
+                    </span>
+                  </div>
+                  <p className="text-[11px] font-medium text-zinc-200">{cluster.domain_llm_suggested_name}</p>
+                  {cluster.domain_llm_suggested_reason && (
+                    <p className="text-[10px] leading-relaxed text-zinc-500 italic">
+                      “{cluster.domain_llm_suggested_reason}”
+                    </p>
+                  )}
+                </div>
               )}
 
               {canEdit ? (

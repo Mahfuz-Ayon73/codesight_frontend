@@ -36,6 +36,7 @@ interface ClusterGroupData {
   ownerName?:       string | null;
   ownerPercentage?: number;
   ownerCount?:      number;
+  visualTheme?:     "dark" | "light";
   [key: string]: unknown;
 }
 
@@ -112,6 +113,7 @@ function OwnershipBadge({ d }: { d: ClusterGroupData }) {
 
 function ClusterGroupNode({ data, selected }: NodeProps) {
   const d = data as ClusterGroupData;
+  const isLight = d.visualTheme === "light";
 
   // Rename-in-place state — hooks must run unconditionally, before the
   // isBackground early return below. draft is only read while isEditing, so
@@ -136,8 +138,11 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
       <div
         className="relative w-full h-full rounded-2xl"
         style={{
-          background:   d.colorBg,
-          border:       `1.5px solid ${d.colorBorder}`,
+          // Keep the flow/detail stage light but translucent: React Flow draws
+          // edges beneath nodes, so an opaque stage would wash out relations.
+          background:   isLight ? "rgba(236,254,255,0.18)" : d.colorBg,
+          border:       `2px solid ${d.colorBorder.replace("0.50", isLight ? "0.95" : "0.50")}`,
+          boxShadow:    isLight ? "0 8px 28px rgba(15,23,42,0.12)" : "none",
           pointerEvents: "none",
         }}
       >
@@ -181,10 +186,10 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
       className="relative w-full h-full rounded-2xl transition-all duration-200 cursor-pointer group"
       style={{
         opacity:      d.dimmed ? 0.15 : 1,
-        background:   d.colorBg,
+        background:   isLight ? d.colorBorder : d.colorBg,
         border:       d.isMerged
-          ? `1.5px dashed ${diffColor ?? (isSelected ? "rgba(255,255,255,0.6)" : d.colorBorder)}`
-          : `1.5px solid ${diffColor ?? (isSelected ? "rgba(255,255,255,0.6)" : d.colorBorder)}`,
+          ? `2px dashed ${diffColor ?? (isSelected ? (isLight ? "#0891b2" : "rgba(255,255,255,0.6)") : d.colorBorder.replace("0.50", isLight ? "0.95" : "0.50"))}`
+          : `2px solid ${diffColor ?? (isSelected ? (isLight ? "#0891b2" : "rgba(255,255,255,0.6)") : d.colorBorder.replace("0.50", isLight ? "0.95" : "0.50"))}`,
         backdropFilter: "blur(10px)",
         WebkitBackdropFilter: "blur(10px)",
         boxShadow: diffColor
@@ -193,7 +198,7 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
             ? `0 0 0 3px rgba(99,102,241,0.75), 0 8px 32px rgba(99,102,241,0.20)`
             : isSelected
               ? `0 0 0 3px ${d.colorBorder}, 0 8px 32px rgba(0,0,0,0.30)`
-              : `0 2px 16px rgba(0,0,0,0.18)`,
+              : isLight ? `0 5px 18px rgba(15,23,42,0.16)` : `0 2px 16px rgba(0,0,0,0.18)`,
       }}
     >
       <Handle type="target" position={Position.Top}    style={{ opacity: 0 }} />
@@ -307,7 +312,7 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
                 )}
               </span>
             )}
-            <p className="text-[9px] text-white/35 mt-0.5 truncate max-w-[150px]">
+            <p className={`text-[9px] mt-0.5 truncate max-w-[150px] ${isLight ? "text-slate-600" : "text-white/35"}`}>
               {d.isMerged ? `${d.mergedCount ?? "?"} merged clusters` : `${d.fileCount} files`}
             </p>
           </div>

@@ -10,6 +10,7 @@ interface Props {
   showOverviewControls: boolean;
   /** Count of connections currently hidden by the overview cap, if any. */
   hiddenCount?:         number;
+  theme?:               "dark" | "light";
 }
 
 const TYPE_ROWS: Array<{
@@ -27,8 +28,9 @@ const TYPE_ROWS: Array<{
   { key: "showProvidesState",      label: "STATE",      color: EDGE_TYPE_COLORS.PROVIDES_STATE      },
 ];
 
-export default function EdgeFilterPanel({ filters, onChange, showOverviewControls, hiddenCount = 0 }: Props) {
+export default function EdgeFilterPanel({ filters, onChange, showOverviewControls, hiddenCount = 0, theme = "dark" }: Props) {
   const [open, setOpen] = useState(false);
+  const isLight = theme === "light";
 
   const set = (key: keyof EdgeFilterOptions, value: boolean | number) =>
     onChange({ ...filters, [key]: value });
@@ -44,8 +46,8 @@ export default function EdgeFilterPanel({ filters, onChange, showOverviewControl
   ].filter(Boolean).length;
 
   const panelStyle = {
-    background:     "rgba(8,8,16,0.92)",
-    border:         "1px solid rgba(255,255,255,0.08)",
+    background:     isLight ? "rgba(255,255,255,0.97)" : "rgba(8,8,16,0.92)",
+    border:         `1px solid ${isLight ? "rgba(6,182,212,0.48)" : "rgba(255,255,255,0.08)"}`,
     backdropFilter: "blur(14px)",
   } as const;
 
@@ -57,7 +59,7 @@ export default function EdgeFilterPanel({ filters, onChange, showOverviewControl
   );
 
   return (
-    <div className="flex flex-col items-end gap-1.5">
+    <div className={`flex flex-col items-end gap-1.5 ${isLight ? "canvas-filter-light" : ""}`}>
       {open && (
         <div className="rounded-xl px-3 py-2.5 flex flex-col gap-2 min-w-[184px]" style={panelStyle}>
           {/* Header */}
@@ -156,10 +158,10 @@ export default function EdgeFilterPanel({ filters, onChange, showOverviewControl
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-all"
         style={{
-          background:     open ? "rgba(99,102,241,0.22)" : "rgba(8,8,16,0.88)",
-          border:         `1px solid ${open ? "rgba(99,102,241,0.50)" : "rgba(255,255,255,0.08)"}`,
+          background:     open ? "rgba(99,102,241,0.22)" : (isLight ? "rgba(255,255,255,0.97)" : "rgba(8,8,16,0.88)"),
+          border:         `1px solid ${open ? "rgba(99,102,241,0.50)" : (isLight ? "rgba(6,182,212,0.48)" : "rgba(255,255,255,0.08)")}`,
           backdropFilter: "blur(14px)",
-          color:          open ? "rgba(99,102,241,0.90)" : "rgba(255,255,255,0.50)",
+          color:          open ? (isLight ? "#4338ca" : "rgba(99,102,241,0.90)") : (isLight ? "#334155" : "rgba(255,255,255,0.50)"),
         }}
       >
         <SlidersHorizontal size={11} />

@@ -77,7 +77,7 @@ interface NavEntry {
 // Inner canvas
 // ---------------------------------------------------------------------------
 function InnerCanvas({
-  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters, canAddNotes, currentUserId, diffOverlay,
+  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters, canAddNotes, currentUserId, diffOverlay, theme,
 }: {
   blueprint: Blueprint;
   projectId: string;
@@ -90,6 +90,7 @@ function InnerCanvas({
   currentUserId?: string | null;
   /** Commit diff overlay — maps canonical_path to a DiffStatus. Null/empty when no commit is selected. */
   diffOverlay?: Map<string, DiffStatus> | null;
+  theme: "dark" | "light";
 }) {
   const { fitView, getNodes, getEdges } = useReactFlow();
   const overridesRef = useRef<UserOverrides>(loadOverrides(projectId));
@@ -400,10 +401,11 @@ function InnerCanvas({
           canEditTitle: !merge && canEditClusters,
           onSaveTitle:  !merge && canEditClusters ? saveClusterTitle : undefined,
           onOpenSummary: merge ? undefined : setSummaryClusterId,
+          visualTheme: theme,
         },
       };
     });
-  }, [viewMode, virtualClusters, index, colorOffset, fileCountOverride, mergeById, selectedClusterIds, removeMerge, currentEntry.isMergedGroup, overrides, canEditClusters, saveClusterTitle]);
+  }, [viewMode, virtualClusters, index, colorOffset, fileCountOverride, mergeById, selectedClusterIds, removeMerge, currentEntry.isMergedGroup, overrides, canEditClusters, saveClusterTitle, theme]);
 
   // Re-fit only when the layout itself changed, not on styling passes.
   useEffect(() => {
@@ -507,14 +509,15 @@ function InnerCanvas({
       setNodes(fn.map((n) => {
         const conn = rel.connectivity.get(n.id);
         const base = !conn || n.type !== "fileCard" ? n : {
-          ...n, data: { ...n.data, isFlowOrphan: conn.isFlowOrphan, edgeCount: conn.edgeCount, flowActive: true },
+          ...n, data: { ...n.data, isFlowOrphan: conn.isFlowOrphan, edgeCount: conn.edgeCount, flowActive: true, visualTheme: theme },
         };
-        if (n.type !== "fileCard") return base;
+        if (n.type !== "fileCard") return { ...base, data: { ...base.data, visualTheme: theme } };
         const dimmed = !showAllFlowEdges && selectedFlowEntry && !reachableFromEntry.has(n.id);
         return {
           ...base,
           data: {
             ...base.data,
+            visualTheme: theme,
             showAllEdges: showAllFlowEdges,
             isSelectedEntry: n.id === selectedFlowEntry,
             onSelectFlow: () => setSelectedFlowEntry((prev) => prev === n.id ? null : n.id),
@@ -528,7 +531,30 @@ function InnerCanvas({
       const filteredEdges = (!showAllFlowEdges && selectedFlowEntry)
         ? fe.filter((e) => reachableFromEntry.has(e.source) && reachableFromEntry.has(e.target))
         : fe;
-      setEdges(filteredEdges);
+      setEdges(isLight
+        ? filteredEdges.map((edge) => ({
+            ...edge,
+            style: {
+              ...edge.style,
+              stroke: edge.style?.stroke ?? "#0891b2",
+              strokeWidth: 2.6,
+              opacity: 1,
+            },
+            labelStyle: {
+              ...edge.labelStyle,
+              fill: "#0f172a",
+              fontSize: 11,
+              fontWeight: 800,
+            },
+            labelBgStyle: {
+              ...edge.labelBgStyle,
+              fill: "rgba(255,255,255,0.98)",
+              stroke: "rgba(8,145,178,0.85)",
+              strokeWidth: 1.5,
+            },
+            labelBgPadding: [6, 4] as [number, number],
+          }))
+        : filteredEdges);
     } else {
       const { nodes: dn, edges: de } = layoutFileDetail(cluster, members, blueprint.edges, ci);
       const rel = computeClusterRelationships(activeLeaf, blueprint, edgeColor, false);
@@ -537,14 +563,14 @@ function InnerCanvas({
       setNodes(dn.map((n) => {
         const conn = rel.connectivity.get(n.id);
         const diffStatus = n.type === "fileCard" ? diffOverlay?.get(n.data.canonical_path as string) : undefined;
-        if (!conn && !diffStatus) return n;
-        return { ...n, data: { ...n.data, ...(conn ? { isOrphan: conn.isOrphan, edgeCount: conn.edgeCount, flowActive: false } : {}), diffStatus } };
+        if (!conn && !diffStatus) return { ...n, data: { ...n.data, visualTheme: theme } };
+        return { ...n, data: { ...n.data, visualTheme: theme, ...(conn ? { isOrphan: conn.isOrphan, edgeCount: conn.edgeCount, flowActive: false } : {}), diffStatus } };
       }));
       setEdges(de.filter((e) => !severedIds.has(e.id)));
     }
     setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 60);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, activeLeaf, flowActive, showAllFlowEdges, selectedFlowEntry, index, blueprint, colorOffset, fitView, setNodes, setEdges, onEdgeSelect, diffOverlay]);
+  }, [viewMode, activeLeaf, flowActive, showAllFlowEdges, selectedFlowEntry, index, blueprint, colorOffset, fitView, setNodes, setEdges, onEdgeSelect, diffOverlay, theme]);
 
   // ---------------------------------------------------------------------------
   // Click handler
@@ -717,9 +743,19 @@ function InnerCanvas({
   const activeCluster  = activeLeaf ? index.clusterById.get(activeLeaf) : null;
   const canGoBack      = !isRoot;
   const mergesActive   = !!orgId;
+  const isLight        = theme === "light";
+  const panelSurface   = isLight ? "rgba(255,255,255,0.96)" : "rgba(8,8,16,0.88)";
+  const panelBorder    = isLight ? "rgba(6,182,212,0.48)" : "rgba(255,255,255,0.08)";
+  const panelText      = isLight ? "rgba(15,23,42,0.72)" : "rgba(255,255,255,0.55)";
 
   return (
-    <div className="relative w-full h-full rounded-2xl overflow-hidden flex flex-col" style={{ background: "#080810" }}>
+    <div
+      className="relative w-full h-full rounded-2xl overflow-hidden flex flex-col transition-colors duration-200"
+      style={{
+        background: isLight ? "#ffffff" : "#080810",
+        border: `1px solid ${isLight ? "rgba(6,182,212,0.72)" : "rgba(255,255,255,0.05)"}`,
+      }}
+    >
       <div className="relative flex-1 min-h-0" ref={canvasWrapperRef}>
       <ReactFlow
         nodes={nodes} edges={edges}
@@ -738,13 +774,16 @@ function InnerCanvas({
         nodesConnectable={viewMode === "file-detail"}
         elementsSelectable={viewMode === "file-detail"}
       >
-        <Background variant={BackgroundVariant.Dots} gap={30} size={1} color="rgba(255,255,255,0.035)" />
-        <Controls className="bg-zinc-900/80! border-white/10! rounded-xl! shadow-xl!" style={{ backdropFilter: "blur(8px)" }} />
+        <Background variant={BackgroundVariant.Dots} gap={30} size={1} color={isLight ? "rgba(6,182,212,0.14)" : "rgba(255,255,255,0.035)"} />
+        <Controls
+          className={`${isLight ? "bg-white/95! border-cyan-200! text-zinc-700!" : "bg-zinc-900/80! border-white/10!"} rounded-xl! shadow-xl!`}
+          style={{ backdropFilter: "blur(8px)" }}
+        />
 
         {/* Breadcrumb + controls */}
         <Panel position="top-left">
           <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs flex-wrap overflow-hidden"
-            style={{ background: "rgba(8,8,16,0.88)", border: "1px solid rgba(255,255,255,0.08)", backdropFilter: "blur(14px)", color: "rgba(255,255,255,0.55)", maxWidth: "min(56vw, 620px)" }}
+            style={{ background: panelSurface, border: `1px solid ${panelBorder}`, boxShadow: isLight ? "0 5px 16px rgba(15,23,42,0.10)" : undefined, backdropFilter: "blur(14px)", color: panelText, maxWidth: "min(56vw, 620px)" }}
           >
             {canGoBack && (
               <button onClick={goBack} className="flex items-center gap-1 text-indigo-400 hover:text-indigo-300 transition-colors mr-1 shrink-0">
@@ -755,13 +794,13 @@ function InnerCanvas({
 
             {navStack.map((entry, idx) => (
               <span key={idx} className="flex items-center gap-1 min-w-0">
-                {idx > 0 && <ChevronRight size={9} className="text-white/20 shrink-0" />}
+                {idx > 0 && <ChevronRight size={9} className={`${isLight ? "text-slate-400" : "text-white/20"} shrink-0`} />}
                 <button
                   onClick={() => goToLevel(idx)}
                   title={entry.label}
                   className={`truncate max-w-[160px] ${idx === navStack.length - 1 && viewMode === "cluster-list"
-                    ? "text-white/80 font-semibold"
-                    : "text-white/40 hover:text-white/70 transition-colors"}`}
+                    ? (isLight ? "text-slate-900 font-semibold" : "text-white/80 font-semibold")
+                    : (isLight ? "text-slate-500 hover:text-slate-900 transition-colors" : "text-white/40 hover:text-white/70 transition-colors")}`}
                 >
                   {entry.label}
                 </button>
@@ -775,7 +814,7 @@ function InnerCanvas({
                   {activeCluster.suggested_title ?? activeCluster.name ?? activeLeaf}
                 </span>
 
-                <div className="flex items-center bg-zinc-950/60 rounded-lg p-0.5 border border-white/5 ml-2">
+                <div className={`flex items-center rounded-lg p-0.5 ml-2 ${isLight ? "bg-cyan-50 border border-cyan-200" : "bg-zinc-950/60 border border-white/5"}`}>
                   <button onClick={() => setFlowActive(false)}
                     className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all ${!flowActive ? "bg-indigo-600/85 text-white" : "text-zinc-400 hover:text-zinc-200"}`}>
                     Structure
@@ -807,7 +846,7 @@ function InnerCanvas({
                         </svg>
                       )}
                     </div>
-                    <span className="text-[10px] text-white/50">all edges</span>
+                    <span className={`text-[10px] ${isLight ? "text-slate-600" : "text-white/50"}`}>all edges</span>
                   </label>
                 )}
 
@@ -891,10 +930,10 @@ function InnerCanvas({
                 title="Export the current view"
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-semibold transition-all disabled:opacity-50"
                 style={{
-                  background:     exportOpen ? "rgba(99,102,241,0.20)" : "rgba(8,8,16,0.88)",
-                  border:         `1px solid ${exportOpen ? "rgba(99,102,241,0.45)" : "rgba(255,255,255,0.07)"}`,
+                  background:     exportOpen ? "rgba(99,102,241,0.20)" : panelSurface,
+                  border:         `1px solid ${exportOpen ? "rgba(99,102,241,0.45)" : panelBorder}`,
                   backdropFilter: "blur(14px)",
-                  color:          exportOpen ? "rgba(165,180,252,0.95)" : "rgba(255,255,255,0.40)",
+                  color:          exportOpen ? (isLight ? "#4338ca" : "rgba(165,180,252,0.95)") : panelText,
                 }}
               >
                 <Download size={9} />
@@ -904,17 +943,17 @@ function InnerCanvas({
               {exportOpen && (
                 <div
                   className="absolute top-full mt-1.5 right-0 flex flex-col gap-0.5 py-1.5 rounded-xl min-w-[172px] z-50"
-                  style={{ background: "rgba(8,8,16,0.96)", border: "1px solid rgba(255,255,255,0.08)", backdropFilter: "blur(14px)" }}
+                  style={{ background: panelSurface, border: `1px solid ${panelBorder}`, backdropFilter: "blur(14px)" }}
                 >
                   <button
                     onClick={handleExportPng}
-                    className="flex items-center gap-2 px-3 py-1.5 text-[10px] text-white/70 hover:bg-white/5 hover:text-white transition-colors text-left"
+                    className={`flex items-center gap-2 px-3 py-1.5 text-[10px] transition-colors text-left ${isLight ? "text-slate-700 hover:bg-cyan-50 hover:text-slate-950" : "text-white/70 hover:bg-white/5 hover:text-white"}`}
                   >
                     <ImageIcon size={11} className="text-emerald-400" /> PNG image
                   </button>
                   <button
                     onClick={handleExportDrawio}
-                    className="flex items-center gap-2 px-3 py-1.5 text-[10px] text-white/70 hover:bg-white/5 hover:text-white transition-colors text-left"
+                    className={`flex items-center gap-2 px-3 py-1.5 text-[10px] transition-colors text-left ${isLight ? "text-slate-700 hover:bg-cyan-50 hover:text-slate-950" : "text-white/70 hover:bg-white/5 hover:text-white"}`}
                   >
                     <FileCode size={11} className="text-indigo-400" /> draw.io XML
                   </button>
@@ -1000,10 +1039,10 @@ function InnerCanvas({
                   title="Suggest cluster merges based on edge density"
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-semibold transition-all"
                   style={{
-                    background:     showMergePanel ? "rgba(99,102,241,0.20)" : "rgba(8,8,16,0.88)",
-                    border:         `1px solid ${showMergePanel ? "rgba(99,102,241,0.45)" : "rgba(255,255,255,0.07)"}`,
+                    background:     showMergePanel ? "rgba(99,102,241,0.20)" : panelSurface,
+                    border:         `1px solid ${showMergePanel ? "rgba(99,102,241,0.45)" : panelBorder}`,
                     backdropFilter: "blur(14px)",
-                    color:          showMergePanel ? "rgba(165,180,252,0.95)" : "rgba(255,255,255,0.40)",
+                    color:          showMergePanel ? (isLight ? "#4338ca" : "rgba(165,180,252,0.95)") : panelText,
                   }}
                 >
                   <Sparkles size={9} />
@@ -1012,8 +1051,8 @@ function InnerCanvas({
               )}
 
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-mono"
-                style={{ background: "rgba(8,8,16,0.88)", border: "1px solid rgba(255,255,255,0.07)", backdropFilter: "blur(14px)",
-                  color: viewMode === "cluster-list" ? "rgba(99,102,241,0.85)" : "rgba(16,185,129,0.85)" }}>
+                style={{ background: panelSurface, border: `1px solid ${panelBorder}`, backdropFilter: "blur(14px)",
+                  color: viewMode === "cluster-list" ? (isLight ? "#4338ca" : "rgba(99,102,241,0.85)") : (isLight ? "#047857" : "rgba(16,185,129,0.85)") }}>
                 <Info size={9} />
                 {viewMode === "cluster-list"
                   ? (selectedClusterIds.size > 0 ? "Shift-click to select · Merge to combine" : "Click to drill in · Shift-click to select")
@@ -1033,6 +1072,10 @@ function InnerCanvas({
                 onSelectedChange={setSelectedDomains}
                 colorByDomain={colorByDomain}
                 onColorByDomainChange={setColorByDomain}
+                orgId={orgId}
+                projectId={projectId}
+                canValidate={canEditClusters}
+                theme={theme}
               />
             )}
             {viewMode === "cluster-list" && (
@@ -1057,6 +1100,7 @@ function InnerCanvas({
                 }}
                 loading={ownershipLoading}
                 error={ownershipError}
+                theme={theme}
               />
             )}
             <EdgeFilterPanel
@@ -1064,6 +1108,7 @@ function InnerCanvas({
               onChange={setEdgeFilters}
               showOverviewControls={viewMode === "cluster-list"}
               hiddenCount={hiddenEdgeCount}
+              theme={theme}
             />
           </div>
         </Panel>
@@ -1210,7 +1255,7 @@ function InnerCanvas({
 // Public export
 // ---------------------------------------------------------------------------
 export default function CodeSightCanvas({
-  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters, canAddNotes, currentUserId, diffOverlay,
+  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters, canAddNotes, currentUserId, diffOverlay, theme = "dark",
 }: {
   blueprint: Blueprint;
   projectId: string;
@@ -1225,6 +1270,7 @@ export default function CodeSightCanvas({
   currentUserId?: string | null;
   /** Commit diff overlay — maps canonical_path to a DiffStatus. Null/empty when no commit is selected. */
   diffOverlay?: Map<string, DiffStatus> | null;
+  theme?: "dark" | "light";
 }) {
   const [ready, setReady] = useState(false);
 
@@ -1235,8 +1281,11 @@ export default function CodeSightCanvas({
   if (!ready) {
     return (
       <div className="w-full h-full rounded-2xl flex items-center justify-center"
-        style={{ background: "#080810", border: "1px solid rgba(255,255,255,0.05)" }}>
-        <div className="flex flex-col items-center gap-3 text-zinc-600">
+        style={{
+          background: theme === "light" ? "#ffffff" : "#080810",
+          border: `1px solid ${theme === "light" ? "rgba(6,182,212,0.72)" : "rgba(255,255,255,0.05)"}`,
+        }}>
+        <div className={`flex flex-col items-center gap-3 ${theme === "light" ? "text-cyan-700" : "text-zinc-600"}`}>
           <div className="w-8 h-8 rounded-full border-2 border-indigo-900 border-t-indigo-400 animate-spin" />
           <span className="text-xs font-mono">preparing canvas…</span>
         </div>
@@ -1251,6 +1300,7 @@ export default function CodeSightCanvas({
         onEdgeSelect={onEdgeSelect} onStartTour={onStartTour} canEditClusters={canEditClusters}
         canAddNotes={canAddNotes} currentUserId={currentUserId}
         diffOverlay={diffOverlay}
+        theme={theme}
       />
     </ReactFlowProvider>
   );
