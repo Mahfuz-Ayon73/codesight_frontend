@@ -93,14 +93,24 @@ export default async function OrgWorkspacePage({ params, searchParams }: Props) 
 
   return (
     <div className="max-w-5xl mx-auto flex flex-col gap-6">
-      <div>
+      <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-zinc-900">My Workspace</h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          {requestedProject
-            ? `Viewing ${requestedProject.name}.`
-            : `Your last active project in ${orgName}.`}
-        </p>
+        {targetProject && (
+          <p className="text-xs text-zinc-400">
+            Last modified{" "}
+            {formatDate(targetProject.updatedAt ?? targetProject.uploadedAt ?? targetProject.createdAt)}
+          </p>
+        )}
       </div>
+
+      {targetProject && (
+        <div className="-mt-4">
+          <h2 className="text-lg font-semibold text-zinc-900">{targetProject.name}</h2>
+          {targetProject.description && (
+            <p className="text-sm text-zinc-500 mt-0.5">{targetProject.description}</p>
+          )}
+        </div>
+      )}
 
       {!targetProject ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white py-16 text-center px-6">
@@ -113,17 +123,6 @@ export default async function OrgWorkspacePage({ params, searchParams }: Props) 
         </div>
       ) : (
         <>
-          {/* Project header */}
-          <div className="flex flex-col gap-0.5">
-            <h2 className="text-lg font-semibold text-zinc-900">{targetProject.name}</h2>
-            <p className="text-xs text-zinc-400">
-              Last modified{" "}
-              {formatDate(targetProject.updatedAt ?? targetProject.uploadedAt ?? targetProject.createdAt)}
-            </p>
-            {targetProject.description && (
-              <p className="text-sm text-zinc-500 mt-1">{targetProject.description}</p>
-            )}
-          </div>
 
           {/* Graph / cluster map area */}
           <div className="rounded-2xl border border-zinc-200 bg-white overflow-hidden">

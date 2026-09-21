@@ -33,6 +33,7 @@ interface FileCardData {
   onSelectFlow?:        () => void;
   /** Set when a commit diff overlay is active and this file changed in the selected commit. */
   diffStatus?:          DiffStatus;
+  visualTheme?:         "dark" | "light";
   [key: string]: unknown;
 }
 
@@ -61,6 +62,7 @@ const ROLE_CONFIG = {
 
 function FileCardNode({ data, selected }: NodeProps) {
   const d = data as FileCardData;
+  const isLight = d.visualTheme === "light";
   const parts    = d.canonical_path.split("/");
   const fileName = parts.pop() ?? d.canonical_path;
   const ext      = fileName.split(".").pop() ?? "";
@@ -105,7 +107,11 @@ function FileCardNode({ data, selected }: NodeProps) {
         className="relative rounded-xl transition-all duration-150 cursor-pointer group"
         style={{
           width:      220,
-          background: flowActive
+          background: isLight
+            ? (flowActive
+                ? (isOrphan ? "rgba(100,116,139,0.34)" : "rgba(6,182,212,0.34)")
+                : (d.isOrphan ? "rgba(245,158,11,0.34)" : d.clusterColor))
+            : flowActive
             ? isOrphan ? "rgba(10,10,15,0.4)" : "rgba(10,25,35,0.85)"
             : d.isOrphan ? "rgba(30,20,10,0.85)" : "rgba(15,15,25,0.82)",
           border: `1px solid ${
@@ -115,13 +121,13 @@ function FileCardNode({ data, selected }: NodeProps) {
                 ? flowActive ? "rgba(6,182,212,0.9)" : "rgba(99,102,241,0.8)"
                 : flowActive
                   ? isOrphan
-                    ? "rgba(255,255,255,0.03)"
+                    ? (isLight ? "rgba(100,116,139,0.45)" : "rgba(255,255,255,0.03)")
                     : isSelectedEntry
                       ? "rgba(6,182,212,0.65)"
                       : "rgba(6,182,212,0.3)"
                   : d.isOrphan
                     ? "rgba(245,158,11,0.25)"
-                    : "rgba(255,255,255,0.08)"
+                    : (isLight ? "rgba(6,182,212,0.55)" : "rgba(255,255,255,0.08)")
           }`,
           backdropFilter: flowActive ? "none" : "blur(12px)",
           WebkitBackdropFilter: flowActive ? "none" : "blur(12px)",
@@ -133,7 +139,7 @@ function FileCardNode({ data, selected }: NodeProps) {
                 ? flowActive
                   ? "0 0 0 2px rgba(6,182,212,0.3), 0 4px 20px rgba(0,0,0,0.4)"
                   : "0 0 0 2px rgba(99,102,241,0.3), 0 4px 20px rgba(0,0,0,0.4)"
-                : "0 2px 8px rgba(0,0,0,0.3)",
+                : isLight ? "0 5px 16px rgba(15,23,42,0.16)" : "0 2px 8px rgba(0,0,0,0.3)",
           opacity: flowActive ? (isOrphan ? 0.35 : 1) : d.isOrphan ? 0.75 : 1,
         }}
       >
@@ -159,22 +165,22 @@ function FileCardNode({ data, selected }: NodeProps) {
           {/* Text */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11px] font-semibold text-zinc-100 truncate leading-tight">
+              <span className={`text-[11px] font-semibold truncate leading-tight ${isLight ? "text-slate-900" : "text-zinc-100"}`}>
                 {fileName}
               </span>
               {ext && (
-                <span className="text-[9px] font-mono px-1 py-px rounded bg-zinc-700/60 text-zinc-400 shrink-0 uppercase">
+                <span className={`text-[9px] font-mono px-1 py-px rounded shrink-0 uppercase ${isLight ? "bg-cyan-50 text-cyan-800" : "bg-zinc-700/60 text-zinc-400"}`}>
                   {ext}
                 </span>
               )}
             </div>
             {dirLabel && (
-              <p className="text-[9px] text-zinc-500 truncate mt-0.5 leading-tight">{dirLabel}</p>
+              <p className={`text-[9px] truncate mt-0.5 leading-tight ${isLight ? "text-slate-600" : "text-zinc-500"}`}>{dirLabel}</p>
             )}
           </div>
 
           {/* Centrality */}
-          <span className="text-[9px] text-zinc-500 tabular-nums shrink-0 mt-0.5">
+          <span className={`text-[9px] tabular-nums shrink-0 mt-0.5 ${isLight ? "text-slate-600" : "text-zinc-500"}`}>
             {(d.centrality_score * 100).toFixed(1)}%
           </span>
         </div>

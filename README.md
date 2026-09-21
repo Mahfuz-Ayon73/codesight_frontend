@@ -1,36 +1,91 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CodeSight — Frontend
+
+The Next.js web application for CodeSight. Lets teams upload codebases, visualize dependency graphs, explore clusters, and collaborate on code understanding.
+
+## Tech Stack
+
+- **Next.js 16** (App Router, React Server Components)
+- **React 19**
+- **Tailwind CSS v4**
+- **React Flow (@xyflow/react)** — interactive graph canvas
+- **D3.js** — graph layout
+- **TypeScript**
+
+## Prerequisites
+
+- Node.js 18+
+- The CodeSight backend running on port `8081`
 
 ## Getting Started
 
-First, run the development server:
+### 1. Install dependencies
+
+```bash
+npm install
+```
+
+### 2. Configure environment
+
+Create a `.env.local` file in the project root:
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8081
+```
+
+### 3. Start the dev server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The app will be available at `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Project Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+src/
+├── app/                    # Next.js App Router pages
+│   ├── (auth)/             # Login, signup, password reset
+│   ├── (dashboard)/        # Main app (workspace, projects, profile)
+│   │   └── organizations/
+│   │       └── [organizationId]/
+│   │           └── projects/
+│   │               ├── page.tsx          # Project list
+│   │               ├── new/page.tsx      # Create project
+│   │               └── [projectId]/      # Project detail & canvas
+│   ├── onboarding/         # New user org/project setup flow
+│   ├── invitations/        # Team invite acceptance
+│   └── api/                # Next.js API routes (proxy to backend)
+├── components/             # Reusable UI components
+│   ├── canvas/             # Blueprint graph canvas & tour
+│   ├── project/            # Project-specific components
+│   ├── navbar/             # Top navigation
+│   └── sidebar/            # Left navigation
+├── actions/                # Next.js Server Actions
+├── services/               # API service layer
+├── hooks/                  # Custom React hooks
+├── types/                  # TypeScript types/schemas
+└── lib/                    # Utilities and middleware
+```
 
-## Learn More
+## Key Features
 
-To learn more about Next.js, take a look at the following resources:
+- **Codebase Graph** — interactive cluster map of your project's architecture
+- **Code Tour** — step-by-step walkthrough of the dependency flow from any entry point
+- **Commit History** — diff-based timeline showing how the architecture evolved
+- **Smart Merge** — merge clusters directly on the canvas
+- **Project Members** — invite teammates and manage roles (Owner / Admin / Member)
+- **Multi-org support** — switch between organizations from the sidebar
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Available Scripts
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Script | Description |
+|--------|-------------|
+| `npm run dev` | Start development server |
+| `npm run build` | Production build |
+| `npm run start` | Start production server |
+| `npm run lint` | Run ESLint |
 
-## Deploy on Vercel
+## Authentication
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Auth is cookie-based (JWT stored in an HTTP-only cookie). The middleware at `src/proxy.ts` protects all dashboard routes and redirects unauthenticated users to `/login`.

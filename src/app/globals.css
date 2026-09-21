@@ -50,3 +50,14 @@ body {
     transition: background-color 5000s ease-in-out 0s;
   }
 }
+.canvas-filter-light [class*="text-white"] {
+  color: rgb(51 65 85) !important;
+}
+
+.canvas-filter-light [class*="bg-white"] {
+  background-color: rgb(236 254 255 / 0.9) !important;
+}
+
+.canvas-filter-light [class*="border-white"] {
+  border-color: rgb(165 243 252 / 0.9) !important;
+}

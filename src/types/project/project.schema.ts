@@ -101,6 +101,9 @@ export interface BlueprintCluster {
   domain_llm_validated?: boolean | null;
   domain_llm_confidence?: number | null;
   domain_llm_reason?: string | null;
+  /** Only set for clusters the sanity pass flagged as weak — a content-grounded replacement name, still advisory. */
+  domain_llm_suggested_name?: string | null;
+  domain_llm_suggested_reason?: string | null;
 }
 
 export interface JourneyCoverage {

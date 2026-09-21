@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Loader2 } from "lucide-react";
+import { Loader2, Moon, Sun } from "lucide-react";
 import type { Blueprint, CommitDiff, CommitHistoryResponse, GraphDelta, SnapshotSummary } from "@/types/project/project.schema";
 import type { EdgeDiffSelection } from "@/components/canvas/EdgeDiffPanel";
 import CommitTimeline from "@/components/canvas/CommitTimeline";
@@ -30,6 +30,8 @@ const TourCanvas = dynamic(() => import("@/components/canvas/TourCanvas"), {
 // a deep re-analysis is triggered, and how often.
 const HISTORY_POLL_INTERVAL_MS = 4000;
 const HISTORY_POLL_MAX_TICKS = 20; // ~80s
+const VISUAL_THEME_STORAGE_KEY = "codesight_visualization_theme";
+type VisualizationTheme = "dark" | "light";
 
 export default function DashboardGraphPreview({
   blueprint,
@@ -48,6 +50,22 @@ export default function DashboardGraphPreview({
 }) {
   const [edgeSelection, setEdgeSelection] = useState<EdgeDiffSelection | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
+  const [visualTheme, setVisualTheme] = useState<VisualizationTheme>("dark");
+
+  useEffect(() => {
+    const savedTheme = window.localStorage.getItem(VISUAL_THEME_STORAGE_KEY);
+    if (savedTheme === "light" || savedTheme === "dark") {
+      Promise.resolve().then(() => setVisualTheme(savedTheme));
+    }
+  }, []);
+
+  const toggleVisualTheme = useCallback(() => {
+    setVisualTheme((current) => {
+      const next = current === "dark" ? "light" : "dark";
+      window.localStorage.setItem(VISUAL_THEME_STORAGE_KEY, next);
+      return next;
+    });
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Commit history — Phase 1 (git-only diff) + Phase 2 (deep re-analysis) trigger
@@ -127,9 +145,29 @@ export default function DashboardGraphPreview({
   const diffOverlay = useDiffOverlay(blueprint, activeCommit, activeDelta);
 
   const hasTour = (blueprint.entry_points?.length ?? 0) > 0;
+  const isLight = visualTheme === "light";
 
   return (
     <>
+      <div className="flex justify-end pt-3">
+        <button
+          type="button"
+          onClick={toggleVisualTheme}
+          aria-pressed={isLight}
+          aria-label={`Switch visualization to ${isLight ? "dark" : "light"} mode`}
+          title={`Switch canvas and commit history to ${isLight ? "dark" : "light"} mode`}
+          className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold transition-colors"
+          style={{
+            background: isLight ? "#ffffff" : "rgba(8,8,16,0.96)",
+            border: `1px solid ${isLight ? "rgba(6,182,212,0.72)" : "rgba(255,255,255,0.10)"}`,
+            color: isLight ? "#0e7490" : "rgba(255,255,255,0.72)",
+          }}
+        >
+          {isLight ? <Sun size={13} /> : <Moon size={13} />}
+          {isLight ? "Light mode" : "Dark mode"}
+        </button>
+      </div>
+
       {orgId && (
         // No horizontal padding — the canvas div right below has none either
         // (full-bleed to the white card's edges), so this must match its width
@@ -145,6 +183,7 @@ export default function DashboardGraphPreview({
             isAnalyzing={isAnalyzingHistory}
             isLoading={commitsLoading}
             canAnalyze={canEditClusters}
+            theme={visualTheme}
           />
         </div>
       )}
@@ -167,6 +206,7 @@ export default function DashboardGraphPreview({
             canAddNotes={canAddNotes}
             currentUserId={currentUserId}
             diffOverlay={diffOverlay}
+            theme={visualTheme}
           />
         )}
       </div>

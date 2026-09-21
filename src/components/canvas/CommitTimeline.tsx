@@ -13,6 +13,7 @@ interface CommitTimelineProps {
   onRequestAnalysis: () => void;
   isAnalyzing: boolean;
   isLoading?: boolean;
+  theme?: "dark" | "light";
   /** ADMIN/OWNER only — hides the Deep analysis trigger for members without the role (matches backend's requireRole(ADMIN) check). */
   canAnalyze?: boolean;
 }
@@ -41,22 +42,29 @@ function CommitTimeline({
   isAnalyzing,
   isLoading = false,
   canAnalyze = true,
+  theme = "dark",
 }: CommitTimelineProps) {
   const snapshotBySha = new Map(snapshots.map((s) => [s.commitSha, s]));
   const isLive = activeShortSha === null;
+  const isLight = theme === "light";
 
   return (
     <div
       className="flex flex-col gap-2"
-      style={{ background: "rgba(8,8,16,0.96)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "12px 16px" }}
+      style={{
+        background: isLight ? "#ffffff" : "rgba(8,8,16,0.96)",
+        border: `1px solid ${isLight ? "rgba(6,182,212,0.65)" : "rgba(255,255,255,0.07)"}`,
+        borderRadius: 16,
+        padding: "12px 16px",
+      }}
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
-          <GitCommit size={12} className="text-indigo-400" />
-          <span className="text-[11px] font-semibold text-white/60 uppercase tracking-widest">Commit History</span>
+          <GitCommit size={12} className={isLight ? "text-cyan-600" : "text-indigo-400"} />
+          <span className={`text-[11px] font-semibold uppercase tracking-widest ${isLight ? "text-zinc-700" : "text-white/60"}`}>Commit History</span>
           {commits.length > 0 && (
-            <span className="text-[10px] font-mono text-white/30">last {commits.length}</span>
+            <span className={`text-[10px] font-mono ${isLight ? "text-zinc-400" : "text-white/30"}`}>last {commits.length}</span>
           )}
         </div>
         {canAnalyze && (
@@ -80,7 +88,7 @@ function CommitTimeline({
       </div>
 
       {/* Scrollable commit strip */}
-      <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.1) transparent" }}>
+      <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "thin", scrollbarColor: isLight ? "rgba(6,182,212,0.25) transparent" : "rgba(255,255,255,0.1) transparent" }}>
         {/* Live (HEAD) pill — hidden while loading */}
         {!isLoading && (
           <button
@@ -88,15 +96,15 @@ function CommitTimeline({
             className="flex-shrink-0 flex flex-col gap-1 px-3 py-2 rounded-xl transition-all duration-150 text-left"
             style={{
               minWidth: 120,
-              border: `1px solid ${isLive ? "rgba(16,185,129,0.6)" : "rgba(255,255,255,0.08)"}`,
-              background: isLive ? "rgba(16,185,129,0.10)" : "rgba(255,255,255,0.03)",
+              border: `1px solid ${isLive ? "rgba(16,185,129,0.6)" : isLight ? "rgba(6,182,212,0.24)" : "rgba(255,255,255,0.08)"}`,
+              background: isLive ? "rgba(16,185,129,0.10)" : isLight ? "rgba(6,182,212,0.035)" : "rgba(255,255,255,0.03)",
             }}
           >
             <div className="flex items-center gap-1.5">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-[10px] font-semibold text-emerald-400">LIVE · HEAD</span>
             </div>
-            <span className="text-[9px] text-white/35">Current state</span>
+            <span className={`text-[9px] ${isLight ? "text-zinc-500" : "text-white/35"}`}>Current state</span>
           </button>
         )}
 
@@ -114,15 +122,15 @@ function CommitTimeline({
               style={{
                 minWidth: 160,
                 maxWidth: 200,
-                border: `1px solid ${isActive ? "rgba(99,102,241,0.6)" : "rgba(255,255,255,0.07)"}`,
-                background: isActive ? "rgba(99,102,241,0.10)" : "rgba(255,255,255,0.025)",
+                border: `1px solid ${isActive ? (isLight ? "rgba(6,182,212,0.72)" : "rgba(99,102,241,0.6)") : isLight ? "rgba(6,182,212,0.22)" : "rgba(255,255,255,0.07)"}`,
+                background: isActive ? (isLight ? "rgba(6,182,212,0.09)" : "rgba(99,102,241,0.10)") : isLight ? "#ffffff" : "rgba(255,255,255,0.025)",
               }}
             >
               {/* SHA + deep analysis indicator */}
               <div className="flex items-center justify-between gap-1">
                 <span
                   className="text-[10px] font-mono font-bold"
-                  style={{ color: isActive ? "rgba(165,180,252,1)" : "rgba(165,180,252,0.6)" }}
+                  style={{ color: isLight ? (isActive ? "#0891b2" : "#0e7490") : isActive ? "rgba(165,180,252,1)" : "rgba(165,180,252,0.6)" }}
                 >
                   {commit.shortSha}
                 </span>
@@ -139,13 +147,13 @@ function CommitTimeline({
               {/* Commit message */}
               <p
                 className="text-[10px] leading-tight line-clamp-2"
-                style={{ color: "rgba(255,255,255,0.65)" }}
+                style={{ color: isLight ? "rgba(24,24,27,0.78)" : "rgba(255,255,255,0.65)" }}
               >
                 {commit.message}
               </p>
 
               {/* Author + date */}
-              <p className="text-[9px] text-white/30 truncate">
+              <p className={`text-[9px] truncate ${isLight ? "text-zinc-500" : "text-white/30"}`}>
                 {commit.author} · {formatRelativeTime(commit.timestamp)}
               </p>
 
@@ -167,7 +175,7 @@ function CommitTimeline({
                       <Minus size={8} />{commit.deletedFiles.length}
                     </span>
                   )}
-                  <span className="text-[9px] text-white/20">
+                  <span className={`text-[9px] ${isLight ? "text-zinc-400" : "text-white/20"}`}>
                     {commit.totalChanges} file{commit.totalChanges !== 1 ? "s" : ""}
                   </span>
                 </div>
@@ -177,13 +185,13 @@ function CommitTimeline({
         })}
 
         {isLoading && (
-          <div className="flex items-center gap-2 px-3 py-4 text-[10px] text-white/25">
+          <div className={`flex items-center gap-2 px-3 py-4 text-[10px] ${isLight ? "text-zinc-400" : "text-white/25"}`}>
             <Loader2 size={12} className="animate-spin" />
             <span>Loading commit history…</span>
           </div>
         )}
         {!isLoading && commits.length === 0 && (
-          <div className="flex items-center gap-2 px-3 py-4 text-[10px] text-white/25">
+          <div className={`flex items-center gap-2 px-3 py-4 text-[10px] ${isLight ? "text-zinc-400" : "text-white/25"}`}>
             <GitCommit size={12} />
             <span>No git history — upload a GitHub repository to enable commit timeline</span>
           </div>
@@ -192,8 +200,8 @@ function CommitTimeline({
 
       {/* Diff legend */}
       {activeShortSha !== null && (
-        <div className="flex items-center gap-3 mt-1 pt-2 border-t border-white/5">
-          <span className="text-[9px] text-white/30 uppercase tracking-wider">Diff legend:</span>
+        <div className={`flex items-center gap-3 mt-1 pt-2 border-t ${isLight ? "border-cyan-100" : "border-white/5"}`}>
+          <span className={`text-[9px] uppercase tracking-wider ${isLight ? "text-zinc-500" : "text-white/30"}`}>Diff legend:</span>
           <span className="flex items-center gap-1 text-[9px] text-emerald-400"><div className="w-2 h-2 rounded-sm bg-emerald-500/40 border border-emerald-500/60" />added</span>
           <span className="flex items-center gap-1 text-[9px] text-amber-400"><div className="w-2 h-2 rounded-sm bg-amber-500/40 border border-amber-500/60" />modified</span>
           <span className="flex items-center gap-1 text-[9px] text-red-400"><div className="w-2 h-2 rounded-sm bg-red-500/40 border border-red-500/60" />deleted</span>

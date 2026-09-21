@@ -1,11 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Tag, X } from "lucide-react";
+import { Loader2, Sparkles, Tag, X } from "lucide-react";
 import type { BlueprintCluster } from "@/types/project/project.schema";
 import {
   clusterDomainKey, formatDomainLabel, getDomainStyle, UNCLASSIFIED_DOMAIN_KEY,
 } from "./domainStyles";
+import { useDomainValidation } from "./useDomainValidation";
 
 interface Props {
   /** Clusters at the current level (post-merge). */
@@ -15,6 +16,11 @@ interface Props {
   onSelectedChange:      (next: Set<string>) => void;
   colorByDomain:         boolean;
   onColorByDomainChange: (v: boolean) => void;
+  orgId?:                string;
+  projectId:             string;
+  /** Gates the "Validate with LLM" action — same tier as cluster renaming (ADMIN/OWNER). */
+  canValidate?:          boolean;
+  theme?:                "dark" | "light";
 }
 
 interface DomainRow {
@@ -30,8 +36,11 @@ const TYPE_RANK: Record<string, number> = {
 
 export default function DomainFilterPanel({
   clusters, selected, onSelectedChange, colorByDomain, onColorByDomainChange,
+  orgId, projectId, canValidate = false, theme = "dark",
 }: Props) {
   const [open, setOpen] = useState(false);
+  const isLight = theme === "light";
+  const { validate, validating, error: validateError, lastResult } = useDomainValidation(orgId, projectId);
 
   const rows = useMemo<DomainRow[]>(() => {
     const acc = new Map<string, DomainRow>();
@@ -63,8 +72,8 @@ export default function DomainFilterPanel({
   const nonDefaultCount = selected.size + (colorByDomain ? 1 : 0);
 
   const panelStyle = {
-    background:     "rgba(8,8,16,0.92)",
-    border:         "1px solid rgba(255,255,255,0.08)",
+    background:     isLight ? "rgba(255,255,255,0.97)" : "rgba(8,8,16,0.92)",
+    border:         `1px solid ${isLight ? "rgba(6,182,212,0.48)" : "rgba(255,255,255,0.08)"}`,
     backdropFilter: "blur(14px)",
   } as const;
 
@@ -76,7 +85,7 @@ export default function DomainFilterPanel({
   );
 
   return (
-    <div className="flex flex-col items-end gap-1.5">
+    <div className={`flex flex-col items-end gap-1.5 ${isLight ? "canvas-filter-light" : ""}`}>
       {open && (
         <div className="rounded-xl px-3 py-2.5 flex flex-col gap-2 min-w-[184px] max-h-64 overflow-y-auto" style={panelStyle}>
           {/* Header */}
@@ -172,10 +181,10 @@ export default function DomainFilterPanel({
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-all"
         style={{
-          background:     open ? "rgba(99,102,241,0.22)" : "rgba(8,8,16,0.88)",
-          border:         `1px solid ${open ? "rgba(99,102,241,0.50)" : "rgba(255,255,255,0.08)"}`,
+          background:     open ? "rgba(99,102,241,0.22)" : (isLight ? "rgba(255,255,255,0.97)" : "rgba(8,8,16,0.88)"),
+          border:         `1px solid ${open ? "rgba(99,102,241,0.50)" : (isLight ? "rgba(6,182,212,0.48)" : "rgba(255,255,255,0.08)")}`,
           backdropFilter: "blur(14px)",
-          color:          open ? "rgba(99,102,241,0.90)" : "rgba(255,255,255,0.50)",
+          color:          open ? (isLight ? "#4338ca" : "rgba(99,102,241,0.90)") : (isLight ? "#334155" : "rgba(255,255,255,0.50)"),
         }}
       >
         <Tag size={11} />
@@ -189,6 +198,40 @@ export default function DomainFilterPanel({
           </span>
         )}
       </button>
+
+      {/* Always visible (not nested inside the collapsed dropdown) so it's discoverable
+          the moment domains are detected, without an extra click to open the filter first. */}
+      {canValidate && rows.length > 0 && (
+        <button
+          onClick={validate}
+          disabled={validating}
+          title={
+            validateError
+              ?? (lastResult?.success
+                    ? `${lastResult.clustersConfirmed}/${lastResult.clustersChecked} domains confirmed by the LLM` +
+                      (lastResult.clustersWithSuggestions ? `, ${lastResult.clustersWithSuggestions} replacement name(s) suggested` : "")
+                    : "Ask the LLM to sanity-check the detected domains and suggest better names for weak ones")
+          }
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+          style={{
+            background:     isLight ? "rgba(255,255,255,0.97)" : "rgba(8,8,16,0.88)",
+            border:         `1px solid ${validateError ? "rgba(244,63,94,0.45)" : (isLight ? "rgba(6,182,212,0.48)" : "rgba(255,255,255,0.08)")}`,
+            backdropFilter: "blur(14px)",
+            color:          validateError ? "rgba(225,29,72,0.90)" : (isLight ? "#334155" : "rgba(255,255,255,0.50)"),
+          }}
+        >
+          {validating ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+          <span className="text-[10px] font-semibold">
+            {validating ? "Validating…" : "Validate with LLM"}
+          </span>
+          {lastResult?.success && !validating && (
+            <span
+              className="w-1.5 h-1.5 rounded-full shrink-0"
+              style={{ background: "rgba(52,211,153,0.90)" }}
+            />
+          )}
+        </button>
+      )}
     </div>
   );
 }
