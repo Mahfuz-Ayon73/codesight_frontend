@@ -6,14 +6,15 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCurrentOrgId } from "@/hooks/Organization/Organization.hooks";
 import { listOrganizationsAction } from "@/actions/organization.action";
 import type { Organization } from "@/types/organization/organization.schema";
-import { LayoutDashboard, FolderOpen, BarChart2, Users, Settings, Plus } from "lucide-react";
+import { LayoutDashboard, FolderOpen, Plus, Users } from "lucide-react";
 
 const navItems = [
   { label: "My Workspace", href: "/",             icon: LayoutDashboard },
   { label: "Projects",     href: "/projects",     icon: FolderOpen },
-  { label: "Visualization",href: "/visualization",icon: BarChart2 },
-  { label: "Collaboration",href: "/collaboration", icon: Users },
-  { label: "Settings",     href: "/settings",     icon: Settings },
+  // Visualization and settings remain intentionally hidden until their pages
+  // are ready. Collaboration is available for every user with organizations.
+  { label: "Collaboration", href: "/collaboration", icon: Users },
+  // { label: "Settings",      href: "/settings",      icon: Settings },
 ];
 
 type Props = {
