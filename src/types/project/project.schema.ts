@@ -197,6 +197,41 @@ export interface ClusterOverride {
   version: number;
 }
 
+export interface NodeClusterOverride {
+  filePath: string;
+  originalClusterId: string;
+  overrideClusterId: string;
+  version: number;
+}
+
+export interface MoveMetricDelta {
+  before: number;
+  after: number;
+  delta: number;
+}
+
+export interface NodeMoveEvaluation {
+  snapshotId: string;
+  filePath: string;
+  fromClusterId: string;
+  toClusterId: string;
+  verdict: "IMPROVES" | "NEUTRAL" | "WORSENS";
+  qualityScore: MoveMetricDelta;
+  modularity: MoveMetricDelta;
+  cohesion: MoveMetricDelta;
+  coupling: MoveMetricDelta;
+  sizeBalance: MoveMetricDelta;
+  filePlacement: MoveMetricDelta;
+  clusterSizes: {
+    sourceBefore: number;
+    sourceAfter: number;
+    targetBefore: number;
+    targetAfter: number;
+  };
+  reasons: string[];
+  methodology: string;
+}
+
 // A single free-form note attached to a cluster (SRS 2.2.9). Unlike
 // ClusterOverride, several of these can exist for the same clusterId — they
 // accumulate into a running history rather than overwriting each other.

@@ -31,6 +31,7 @@ import {
   useClusterMerges, applyMerges, suggestMerges, type ClusterMerge,
 } from "./useClusterMerges";
 import { useClusterOverrides } from "./useClusterOverrides";
+import { useNodeClusterMoves } from "./useNodeClusterMoves";
 import { useClusterNotes } from "./useClusterNotes";
 import { exportCanvasAsPng, exportGraphAsDrawio } from "./exportGraph";
 import {
@@ -96,8 +97,23 @@ function InnerCanvas({
   const overridesRef = useRef<UserOverrides>(loadOverrides(projectId));
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
 
-  // Pre-build the full cluster index once
-  const index = useMemo(() => buildClusterIndex(blueprint), [blueprint]);
+  // Manual file placements are an overlay on the immutable analyzer blueprint.
+  const {
+    overrides: nodeClusterOverrides,
+    previewMove: previewNodeMove,
+    applyMove: applyNodeMove,
+    snapshotReady: nodeMovesReady,
+  } = useNodeClusterMoves(orgId ?? "", projectId);
+  const effectiveBlueprint = useMemo<Blueprint>(() => ({
+    ...blueprint,
+    nodes: blueprint.nodes.map((node) => {
+      const override = nodeClusterOverrides.get(node.canonical_path);
+      return override ? { ...node, cluster_id: override.overrideClusterId } : node;
+    }),
+  }), [blueprint, nodeClusterOverrides]);
+
+  // Pre-build the full cluster index from effective (analyzer + manual) membership.
+  const index = useMemo(() => buildClusterIndex(effectiveBlueprint), [effectiveBlueprint]);
 
   // Navigation stack
   const [navStack, setNavStack] = useState<NavEntry[]>([{ clusterId: null, label: "Overview" }]);
@@ -121,7 +137,10 @@ function InnerCanvas({
   const [selectedFileNode, setSelectedFileNode] = useState<BlueprintNode | null>(null);
 
   // Fast id → node lookup for edge-click resolution.
-  const nodeById = useMemo(() => new Map(blueprint.nodes.map((n) => [n.id, n])), [blueprint.nodes]);
+  const nodeById = useMemo(
+    () => new Map(effectiveBlueprint.nodes.map((n) => [n.id, n])),
+    [effectiveBlueprint.nodes],
+  );
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -162,8 +181,24 @@ function InnerCanvas({
   // from the ADMIN/OWNER-only title/summary override above.
   const {
     notesByCluster, addNote: addClusterNote, deleteNote: deleteClusterNote, saving: noteSaving,
+    error: noteError, snapshotReady: notesReady,
   } = useClusterNotes(orgId ?? "", projectId);
   const [summaryClusterId, setSummaryClusterId] = useState<string | null>(null);
+
+  const moveTargetClusters = useMemo(() => blueprint.clusters
+    .filter((cluster) => cluster.id !== "c_global_shared" && (index.childrenOf.get(cluster.id)?.length ?? 0) === 0)
+    .map((cluster) => ({
+      id: cluster.id,
+      label: overrides.get(cluster.id)?.overrideTitle
+        ?? cluster.suggested_title
+        ?? cluster.name
+        ?? cluster.id,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label)), [blueprint.clusters, index.childrenOf, overrides]);
+
+  const effectiveSelectedFileNode = selectedFileNode
+    ? nodeById.get(selectedFileNode.id) ?? selectedFileNode
+    : null;
 
   // ---------------------------------------------------------------------------
   // Visible clusters — respects merged-group nav entries
@@ -1239,10 +1274,16 @@ function InnerCanvas({
       )}
 
       <CodeViewerPanel
-        node={selectedFileNode}
+        key={`${effectiveSelectedFileNode?.id ?? "closed"}:${effectiveSelectedFileNode?.cluster_id ?? ""}`}
+        node={effectiveSelectedFileNode}
         organizationId={orgId}
         projectId={projectId}
         onClose={() => setSelectedFileNode(null)}
+        theme={theme}
+        canMove={!!canEditClusters && nodeMovesReady}
+        clusterOptions={moveTargetClusters}
+        onPreviewMove={previewNodeMove}
+        onApplyMove={applyNodeMove}
       />
       <ClusterSummaryPanel
         cluster={summaryClusterId ? index.clusterById.get(summaryClusterId) ?? null : null}
@@ -1252,11 +1293,13 @@ function InnerCanvas({
         onSave={saveClusterSummary}
         onClose={() => setSummaryClusterId(null)}
         notes={summaryClusterId ? notesByCluster.get(summaryClusterId) ?? [] : []}
-        canAddNotes={!!canAddNotes}
+        canAddNotes={!!canAddNotes && notesReady}
         currentUserId={currentUserId ?? null}
         savingNote={noteSaving}
+        noteError={noteError}
         onAddNote={addClusterNote}
         onDeleteNote={deleteClusterNote}
+        theme={theme}
       />
       </div>
     </div>

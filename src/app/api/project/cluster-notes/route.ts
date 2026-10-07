@@ -3,6 +3,10 @@ import { cookies } from "next/headers";
 import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
+const NO_STORE_HEADERS = {
+  "Content-Type": "application/json",
+  "Cache-Control": "no-store, max-age=0",
+};
 
 export async function GET(request: NextRequest) {
   const cookieStore = await cookies();
@@ -20,11 +24,14 @@ export async function GET(request: NextRequest) {
 
   const res = await fetch(
     `${API_BASE}/api/v1/organizations/${organizationId}/projects/${projectId}/graph/notes?snapshotId=${snapshotId}`,
-    { headers: { Authorization: `Bearer ${token}` } }
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    }
   );
 
   const text = await res.text();
-  return new NextResponse(text, { status: res.status, headers: { "Content-Type": "application/json" } });
+  return new NextResponse(text, { status: res.status, headers: NO_STORE_HEADERS });
 }
 
 export async function POST(request: NextRequest) {
@@ -52,7 +59,7 @@ export async function POST(request: NextRequest) {
   );
 
   const text = await res.text();
-  return new NextResponse(text, { status: res.status, headers: { "Content-Type": "application/json" } });
+  return new NextResponse(text, { status: res.status, headers: NO_STORE_HEADERS });
 }
 
 export async function DELETE(request: NextRequest) {
@@ -79,5 +86,5 @@ export async function DELETE(request: NextRequest) {
 
   if (res.status === 204) return new NextResponse(null, { status: 204 });
   const text = await res.text();
-  return new NextResponse(text, { status: res.status, headers: { "Content-Type": "application/json" } });
+  return new NextResponse(text, { status: res.status, headers: NO_STORE_HEADERS });
 }

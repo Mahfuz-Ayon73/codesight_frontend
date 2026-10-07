@@ -3,80 +3,121 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ClusterNote } from "@/types/project/project.schema";
 
-// ---------------------------------------------------------------------------
-// useClusterNotes — resolves the project's latest snapshot, loads every
-// collaborative note recorded against it, and adds/removes notes. Same
-// snapshot-resolution shape as useClusterOverrides, but notes are additive
-// (a Map<clusterId, ClusterNote[]>) rather than one-per-cluster, since
-// multiple team members can each leave their own note on the same cluster.
-// ---------------------------------------------------------------------------
+const NOTE_REFRESH_INTERVAL_MS = 10_000;
 
+function groupByCluster(list: ClusterNote[]) {
+  const map = new Map<string, ClusterNote[]>();
+  for (const note of list) {
+    const bucket = map.get(note.clusterId);
+    if (bucket) bucket.push(note);
+    else map.set(note.clusterId, [note]);
+  }
+  return map;
+}
+
+/** Loads and mutates the notes shared by every member viewing this project. */
 export function useClusterNotes(orgId: string, projectId: string) {
   const [snapshotId, setSnapshotId] = useState<string | null>(null);
   const [notesByCluster, setNotesByCluster] = useState<Map<string, ClusterNote[]>>(new Map());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const groupByCluster = (list: ClusterNote[]) => {
-    const map = new Map<string, ClusterNote[]>();
-    for (const note of list) {
-      const bucket = map.get(note.clusterId);
-      if (bucket) bucket.push(note);
-      else map.set(note.clusterId, [note]);
-    }
-    return map;
-  };
-
   useEffect(() => {
     let cancelled = false;
+    let refreshTimer: ReturnType<typeof setInterval> | undefined;
+    let resolvedSnapshotId: string | null = null;
 
-    fetch(`/api/project/snapshot-latest?organizationId=${orgId}&projectId=${projectId}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((snap: { snapshotId?: string } | null) => {
-        if (cancelled || !snap?.snapshotId) return;
-        setSnapshotId(snap.snapshotId);
-        return fetch(
-          `/api/project/cluster-notes?organizationId=${orgId}&projectId=${projectId}&snapshotId=${snap.snapshotId}`
-        ).then((r) => (r.ok ? r.json() : []));
-      })
-      .then((list: ClusterNote[] | undefined) => {
-        if (cancelled || !Array.isArray(list)) return;
+    const loadNotes = async () => {
+      if (!resolvedSnapshotId) return;
+      const response = await fetch(
+        `/api/project/cluster-notes?organizationId=${orgId}&projectId=${projectId}&snapshotId=${resolvedSnapshotId}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) throw new Error("Could not load cluster notes.");
+      const list = await response.json() as ClusterNote[];
+      if (!cancelled && Array.isArray(list)) {
         setNotesByCluster(groupByCluster(list));
-      })
-      .catch(() => { /* non-fatal — canvas still works without notes */ });
+      }
+    };
 
-    return () => { cancelled = true; };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadNotes().catch(() => {
+          if (!cancelled) setError("Could not refresh cluster notes.");
+        });
+      }
+    };
+
+    const initialize = async () => {
+      if (!orgId || !projectId) return;
+      try {
+        const response = await fetch(
+          `/api/project/snapshot-latest?organizationId=${orgId}&projectId=${projectId}`,
+          { cache: "no-store" },
+        );
+        if (!response.ok) throw new Error("The graph snapshot is not ready for notes.");
+        const snapshot = await response.json() as { snapshotId?: string };
+        if (!snapshot.snapshotId) throw new Error("The graph snapshot is not ready for notes.");
+        resolvedSnapshotId = snapshot.snapshotId;
+        if (cancelled) return;
+        setSnapshotId(resolvedSnapshotId);
+        await loadNotes();
+        if (cancelled) return;
+        setError(null);
+        refreshTimer = setInterval(refreshWhenVisible, NOTE_REFRESH_INTERVAL_MS);
+        window.addEventListener("focus", refreshWhenVisible);
+        document.addEventListener("visibilitychange", refreshWhenVisible);
+      } catch (reason) {
+        if (!cancelled) {
+          setError(reason instanceof Error ? reason.message : "Could not load cluster notes.");
+        }
+      }
+    };
+
+    void initialize();
+
+    return () => {
+      cancelled = true;
+      if (refreshTimer) clearInterval(refreshTimer);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [orgId, projectId]);
 
   const addNote = useCallback(async (clusterId: string, content: string) => {
     const trimmed = content.trim();
-    if (!snapshotId || !trimmed) return;
+    if (!trimmed) return false;
+    if (!snapshotId) {
+      setError("The graph snapshot is not ready for notes.");
+      return false;
+    }
 
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(
+      const response = await fetch(
         `/api/project/cluster-notes?organizationId=${orgId}&projectId=${projectId}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ snapshotId, clusterId, content: trimmed }),
-        }
+        },
       );
-
-      if (!res.ok) {
+      if (!response.ok) {
         setError("Failed to save the note.");
-        return;
+        return false;
       }
 
-      const saved: ClusterNote = await res.json();
-      setNotesByCluster((prev) => {
-        const next = new Map(prev);
+      const saved = await response.json() as ClusterNote;
+      setNotesByCluster((previous) => {
+        const next = new Map(previous);
         next.set(clusterId, [...(next.get(clusterId) ?? []), saved]);
         return next;
       });
+      return true;
     } catch {
       setError("Failed to save the note.");
+      return false;
     } finally {
       setSaving(false);
     }
@@ -85,17 +126,17 @@ export function useClusterNotes(orgId: string, projectId: string) {
   const deleteNote = useCallback(async (clusterId: string, noteId: number) => {
     setError(null);
     try {
-      const res = await fetch(
+      const response = await fetch(
         `/api/project/cluster-notes?organizationId=${orgId}&projectId=${projectId}&noteId=${noteId}`,
-        { method: "DELETE" }
+        { method: "DELETE" },
       );
-      if (!res.ok && res.status !== 204) {
+      if (!response.ok && response.status !== 204) {
         setError("Failed to delete the note.");
         return;
       }
-      setNotesByCluster((prev) => {
-        const next = new Map(prev);
-        next.set(clusterId, (next.get(clusterId) ?? []).filter((n) => n.id !== noteId));
+      setNotesByCluster((previous) => {
+        const next = new Map(previous);
+        next.set(clusterId, (next.get(clusterId) ?? []).filter((note) => note.id !== noteId));
         return next;
       });
     } catch {

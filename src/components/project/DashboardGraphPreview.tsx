@@ -180,6 +180,7 @@ export default function DashboardGraphPreview({
         organizationId={orgId}
         projectId={projectId}
         onClose={() => setEdgeSelection(null)}
+        theme={visualTheme}
       />
     </>
   );

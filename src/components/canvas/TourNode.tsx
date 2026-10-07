@@ -69,7 +69,7 @@ function TourNodeInner({ data }: { data: TourNodeData }) {
 
         <div className="flex items-center gap-1.5">
           <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color }} />
-          <span className={`text-[10px] font-semibold truncate flex-1 ${isLight ? "text-slate-900" : "text-white/90"}`}>
+          <span className={`text-[10px] font-semibold truncate flex-1 ${isLight ? "text-black" : "text-white/90"}`}>
             {title}
           </span>
           <span className={`text-[9px] font-mono ${isLight ? "text-slate-500" : "text-white/30"}`}>{files.length}</span>
@@ -100,7 +100,7 @@ function TourNodeInner({ data }: { data: TourNodeData }) {
                 className={`text-left rounded px-1 transition-colors ${isLight ? "hover:bg-slate-100" : "hover:bg-white/[0.08]"}`}
                 style={{ height: 15 }}
               >
-                <span className={`text-[9px] font-mono truncate block leading-[15px] ${isLight ? "text-slate-700" : "text-white/60"}`}>
+                <span className={`text-[9px] font-mono truncate block leading-[15px] ${isLight ? "text-black" : "text-white/60"}`}>
                   {f.name}
                 </span>
               </button>

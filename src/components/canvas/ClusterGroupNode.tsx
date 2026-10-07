@@ -60,6 +60,7 @@ function dominantDiffColor(counts: { added: number; modified: number; deleted: n
 function DomainBadge({ d }: { d: ClusterGroupData }) {
   if (!d.domain || d.domainType === "UNCLASSIFIED") return null;
   const ds = getDomainStyle(d.domain);
+  const isLight = d.visualTheme === "light";
   const pct = d.domainConfidence != null ? `${Math.round(d.domainConfidence * 100)}%` : null;
   const tooltip = [
     `${d.domain} · ${d.domainType}${pct ? ` · ${pct} confidence` : ""}`,
@@ -70,13 +71,14 @@ function DomainBadge({ d }: { d: ClusterGroupData }) {
       title={tooltip}
       className="inline-flex items-center gap-1 text-[8px] font-mono font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full max-w-[150px]"
       style={{
-        background: ds.badgeBg,
-        border:     `1px ${d.domainType === "EMERGENT" ? "dashed" : "solid"} ${ds.badgeBorder}`,
-        color:      ds.badgeText,
+        background: isLight ? "rgba(255,255,255,0.78)" : ds.badgeBg,
+        border:     `1px ${d.domainType === "EMERGENT" ? "dashed" : "solid"} ${isLight ? "rgba(15,23,42,0.30)" : ds.badgeBorder}`,
+        color:      isLight ? "#0f172a" : ds.badgeText,
+        boxShadow:  isLight ? "0 1px 2px rgba(15,23,42,0.08)" : undefined,
       }}
     >
       <span className="truncate">{formatDomainLabel(d.domain)}</span>
-      {pct && <span style={{ opacity: 0.55 }}>{pct}</span>}
+      {pct && <span style={{ opacity: isLight ? 0.78 : 0.55 }}>{pct}</span>}
     </span>
   );
 }
@@ -87,6 +89,7 @@ function DomainBadge({ d }: { d: ClusterGroupData }) {
 function OwnershipBadge({ d }: { d: ClusterGroupData }) {
   if (!d.ownerName) return null;
   const os = getOwnerStyle(d.ownerName);
+  const isLight = d.visualTheme === "light";
   const pct = Math.round(d.ownerPercentage ?? 0);
   const risky = pct >= BUS_FACTOR_THRESHOLD && (d.ownerCount ?? 1) <= 2;
   const tooltip = `${d.ownerName} · ${pct}% of blamed lines${
@@ -96,7 +99,12 @@ function OwnershipBadge({ d }: { d: ClusterGroupData }) {
     <span
       title={tooltip}
       className="inline-flex items-center gap-1 text-[8px] font-mono font-semibold px-1.5 py-0.5 rounded-full max-w-[150px]"
-      style={{ background: os.badgeBg, border: `1px solid ${os.badgeBorder}`, color: os.badgeText }}
+      style={{
+        background: isLight ? "rgba(255,255,255,0.78)" : os.badgeBg,
+        border: `1px solid ${isLight ? "rgba(15,23,42,0.30)" : os.badgeBorder}`,
+        color: isLight ? "#0f172a" : os.badgeText,
+        boxShadow: isLight ? "0 1px 2px rgba(15,23,42,0.08)" : undefined,
+      }}
     >
       <span
         className="flex items-center justify-center w-3 h-3 rounded-full shrink-0 text-[6px] font-bold"
@@ -105,7 +113,7 @@ function OwnershipBadge({ d }: { d: ClusterGroupData }) {
         {initialsOf(d.ownerName)}
       </span>
       <span className="truncate">{d.ownerName}</span>
-      <span style={{ opacity: 0.55 }}>{pct}%</span>
+      <span style={{ opacity: isLight ? 0.78 : 0.55 }}>{pct}%</span>
       {risky && <AlertTriangle size={8} color="rgba(251,191,36,0.90)" />}
     </span>
   );
@@ -155,15 +163,16 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
           </div>
           <span
             className="text-[11px] font-semibold tracking-wide truncate max-w-[200px]"
-            style={{ color: d.colorBorder.replace("0.50", "0.95") }}
+            style={{ color: isLight ? "#000000" : d.colorBorder.replace("0.50", "0.95") }}
           >
             {d.label}
           </span>
           <span
             className="text-[10px] px-1.5 py-0.5 rounded-full font-mono"
             style={{
-              background: d.colorBorder.replace("0.50", "0.12"),
-              color:      d.colorBorder.replace("0.50", "0.85"),
+              background: isLight ? "rgba(255,255,255,0.78)" : d.colorBorder.replace("0.50", "0.12"),
+              color:      isLight ? "#0f172a" : d.colorBorder.replace("0.50", "0.85"),
+              border:     isLight ? "1px solid rgba(15,23,42,0.18)" : undefined,
             }}
           >
             {d.fileCount}
@@ -217,11 +226,11 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
       {/* Unmerge button — only for merged clusters */}
       {d.isMerged && d.onUnmerge && (
         <button
-          className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center justify-center w-4 h-4 rounded-full bg-white/10 hover:bg-red-500/50"
+          className={`absolute top-2 right-2 z-10 group-hover:opacity-100 transition-opacity duration-150 flex items-center justify-center w-5 h-5 rounded-full ${isLight ? "opacity-70 bg-white/75 text-slate-700 hover:bg-red-100 hover:text-red-700" : "opacity-0 bg-white/10 text-white hover:bg-red-500/50"}`}
           title="Unmerge"
           onClick={(e) => { e.stopPropagation(); (d.onUnmerge as (id: string) => void)(d.clusterId); }}
         >
-          <X size={8} color="#fff" />
+          <X size={9} />
         </button>
       )}
 
@@ -267,7 +276,7 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
                 }}
                 className="text-[11px] font-semibold leading-tight bg-transparent outline-none border-b truncate max-w-[150px]"
                 style={{
-                  color: d.colorBorder.replace("0.50", "0.95"),
+                  color: isLight ? "#000000" : d.colorBorder.replace("0.50", "0.95"),
                   borderColor: d.colorBorder,
                   pointerEvents: "auto",
                 }}
@@ -277,7 +286,7 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
                 <p
                   className="text-[11px] font-semibold leading-tight truncate max-w-[150px]"
                   style={{
-                    color: d.colorBorder.replace("0.50", "0.95"),
+                    color: isLight ? "#000000" : d.colorBorder.replace("0.50", "0.95"),
                     ...(d.canEditTitle ? { pointerEvents: "auto", cursor: "text" } : {}),
                   }}
                   title={d.canEditTitle ? "Double-click to rename" : undefined}
@@ -290,8 +299,8 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
                     obvious instead of relying on a hidden double-click gesture. */}
                 {d.canEditTitle && (
                   <button
-                    className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                    style={{ pointerEvents: "auto", color: d.colorBorder.replace("0.50", "0.75") }}
+                    className={`shrink-0 rounded p-0.5 group-hover:opacity-100 transition-all duration-150 ${isLight ? "opacity-70 text-slate-700 hover:bg-white/70 hover:text-black" : "opacity-0"}`}
+                    style={{ pointerEvents: "auto", color: isLight ? undefined : d.colorBorder.replace("0.50", "0.75") }}
                     title="Rename cluster"
                     onClick={(e) => { e.stopPropagation(); setDraft(d.label); setIsEditing(true); }}
                     onDoubleClick={(e) => e.stopPropagation()}
@@ -301,8 +310,8 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
                 )}
                 {d.onOpenSummary && (
                   <button
-                    className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                    style={{ pointerEvents: "auto", color: d.colorBorder.replace("0.50", "0.75") }}
+                    className={`shrink-0 rounded p-0.5 group-hover:opacity-100 transition-all duration-150 ${isLight ? "opacity-70 text-slate-700 hover:bg-white/70 hover:text-black" : "opacity-0"}`}
+                    style={{ pointerEvents: "auto", color: isLight ? undefined : d.colorBorder.replace("0.50", "0.75") }}
                     title="View cluster summary"
                     onClick={(e) => { e.stopPropagation(); d.onOpenSummary?.(d.clusterId); }}
                     onDoubleClick={(e) => e.stopPropagation()}
@@ -312,7 +321,7 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
                 )}
               </span>
             )}
-            <p className={`text-[9px] mt-0.5 truncate max-w-[150px] ${isLight ? "text-slate-600" : "text-white/35"}`}>
+            <p className={`text-[9px] mt-0.5 truncate max-w-[150px] ${isLight ? "font-medium text-slate-700" : "text-white/35"}`}>
               {d.isMerged ? `${d.mergedCount ?? "?"} merged clusters` : `${d.fileCount} files`}
             </p>
           </div>
@@ -321,8 +330,9 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
           <span
             className="text-[9px] font-mono px-1.5 py-0.5 rounded-full"
             style={{
-              background: d.colorBorder.replace("0.50", "0.12"),
-              color:      d.colorBorder.replace("0.50", "0.70"),
+              background: isLight ? "rgba(255,255,255,0.78)" : d.colorBorder.replace("0.50", "0.12"),
+              color:      isLight ? "#0f172a" : d.colorBorder.replace("0.50", "0.70"),
+              border:     isLight ? "1px solid rgba(15,23,42,0.18)" : undefined,
             }}
           >
             {d.fileCount} files
@@ -336,15 +346,19 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
         <OwnershipBadge d={d} />
         {diffCounts && (diffCounts.added + diffCounts.modified + diffCounts.deleted > 0) && (
           <span className="flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded-full"
-            style={{ background: "rgba(0,0,0,0.30)", color: "rgba(255,255,255,0.75)" }}>
+            style={{
+              background: isLight ? "rgba(255,255,255,0.82)" : "rgba(0,0,0,0.30)",
+              color: isLight ? "#0f172a" : "rgba(255,255,255,0.75)",
+              border: isLight ? "1px solid rgba(15,23,42,0.18)" : undefined,
+            }}>
             {diffCounts.added > 0 && (
-              <span className="flex items-center gap-0.5 text-emerald-400"><Plus size={7} />{diffCounts.added}</span>
+              <span className={`flex items-center gap-0.5 ${isLight ? "text-emerald-700" : "text-emerald-400"}`}><Plus size={7} />{diffCounts.added}</span>
             )}
             {diffCounts.modified > 0 && (
-              <span className="text-amber-400">~{diffCounts.modified}</span>
+              <span className={isLight ? "text-amber-800" : "text-amber-400"}>~{diffCounts.modified}</span>
             )}
             {diffCounts.deleted > 0 && (
-              <span className="flex items-center gap-0.5 text-red-400"><Minus size={7} />{diffCounts.deleted}</span>
+              <span className={`flex items-center gap-0.5 ${isLight ? "text-red-700" : "text-red-400"}`}><Minus size={7} />{diffCounts.deleted}</span>
             )}
           </span>
         )}
@@ -352,8 +366,8 @@ function ClusterGroupNode({ data, selected }: NodeProps) {
 
       {/* Click to open hint */}
       <div
-        className="absolute bottom-2.5 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none select-none"
-        style={{ color: d.colorBorder.replace("0.50", "0.80") }}
+        className={`absolute bottom-2.5 right-3 flex items-center gap-1 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none select-none ${isLight ? "opacity-70" : "opacity-0"}`}
+        style={{ color: isLight ? "#334155" : d.colorBorder.replace("0.50", "0.80") }}
       >
         <span className="text-[9px] font-medium">open</span>
         <ChevronRight size={9} />
