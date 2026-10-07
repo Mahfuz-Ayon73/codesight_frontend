@@ -3,8 +3,8 @@ import { AUTH_TOKEN_COOKIE } from "@/utils/cookie";
 
 const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/reset-password"];
 // Reachable both logged-out and logged-in — unlike PUBLIC_PATHS, being logged in does NOT
-// bounce you away from these (the invitation-accept page needs to work in both states).
-const NEUTRAL_PATHS = ["/invitations"];
+// bounce you away from these. Email links must work independently of the current session.
+const NEUTRAL_PATHS = ["/invitations", "/verify-email"];
 
 export function authMiddleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

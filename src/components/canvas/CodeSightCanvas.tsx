@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ReactFlow, Background, Controls,
   useNodesState, useEdgesState, addEdge,
@@ -776,8 +776,20 @@ function InnerCanvas({
       >
         <Background variant={BackgroundVariant.Dots} gap={30} size={1} color={isLight ? "rgba(6,182,212,0.14)" : "rgba(255,255,255,0.035)"} />
         <Controls
-          className={`${isLight ? "bg-white/95! border-cyan-200! text-zinc-700!" : "bg-zinc-900/80! border-white/10!"} rounded-xl! shadow-xl!`}
-          style={{ backdropFilter: "blur(8px)" }}
+          className={`codesight-flow-controls ${isLight ? "codesight-flow-controls-light" : "codesight-flow-controls-dark"}`}
+          style={{
+            backdropFilter: "blur(8px)",
+            overflow: "hidden",
+            border: `1px solid ${isLight ? "rgba(8,145,178,0.38)" : "rgba(113,113,122,0.6)"}`,
+            borderRadius: "12px",
+            boxShadow: "0 10px 28px rgba(0,0,0,0.24)",
+            "--xy-controls-button-background-color": isLight ? "rgba(255,255,255,0.96)" : "rgba(24,24,27,0.94)",
+            "--xy-controls-button-background-color-hover": isLight ? "#ecfeff" : "#3f3f46",
+            "--xy-controls-button-color": isLight ? "#334155" : "#e4e4e7",
+            "--xy-controls-button-color-hover": isLight ? "#0e7490" : "#ffffff",
+            "--xy-controls-button-border-color": isLight ? "#e2e8f0" : "#3f3f46",
+            "--xy-controls-box-shadow": "none",
+          } as CSSProperties}
         />
 
         {/* Breadcrumb + controls */}

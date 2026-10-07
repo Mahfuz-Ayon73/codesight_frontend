@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type CSSProperties } from "react";
 import {
   ReactFlow, Background, Controls, BackgroundVariant,
   ReactFlowProvider, useReactFlow,
@@ -53,9 +53,11 @@ interface Props {
   blueprint: Blueprint;
   onExit: () => void;
   onOpenFile?: (canonicalPath: string) => void;
+  theme: "dark" | "light";
 }
 
-function TourCanvasInner({ blueprint, onExit, onOpenFile }: Props) {
+function TourCanvasInner({ blueprint, onExit, onOpenFile, theme }: Props) {
+  const isLight = theme === "light";
   const entryPoints = blueprint.entry_points ?? [];
   const [rootFile, setRootFile] = useState<string | null>(null);
   const [depth, setDepth] = useState(0);
@@ -220,6 +222,7 @@ function TourCanvasInner({ blueprint, onExit, onOpenFile }: Props) {
             })),
             isNew:   d === safeDepth && safeDepth > 0,
             isRoot:  d === 0,
+            visualTheme: theme,
             expanded: expandedCards.has(card.id),
             onToggle: () => setExpandedCards((prev) => {
               const next = new Set(prev);
@@ -277,8 +280,8 @@ function TourCanvasInner({ blueprint, onExit, onOpenFile }: Props) {
         },
         markerEnd: { type: "arrowclosed" as const, width: 14, height: 14, color },
         label: e.isNew ? (e.label ?? (e.count > 1 ? `${e.count} files` : undefined)) : undefined,
-        labelStyle: { fill: "#c7d2fe", fontSize: 9, fontFamily: "monospace" },
-        labelBgStyle: { fill: "rgba(8,12,26,0.95)" },
+        labelStyle: { fill: isLight ? "#4338ca" : "#c7d2fe", fontSize: 9, fontFamily: "monospace" },
+        labelBgStyle: { fill: isLight ? "rgba(255,255,255,0.96)" : "rgba(8,12,26,0.95)" },
       };
     });
 
@@ -289,7 +292,7 @@ function TourCanvasInner({ blueprint, onExit, onOpenFile }: Props) {
       newCount: (byDepth.get(safeDepth) ?? []).length,
     };
   }, [journey, safeDepth, byDepth, bands, cardOfFile, expandedCards,
-      clusterColor, clusterName, onOpenFile]);
+      clusterColor, clusterName, onOpenFile, theme, isLight]);
 
   const step = (next: number) => {
     setDepth(Math.max(0, Math.min(next, maxDepth)));
@@ -304,9 +307,13 @@ function TourCanvasInner({ blueprint, onExit, onOpenFile }: Props) {
 
   const landings = entryPoints.filter((e) => e.is_landing);
   const atEnd = safeDepth >= maxDepth;
+  const panelSurface = isLight ? "rgba(255,255,255,0.94)" : "rgba(8,8,16,0.92)";
+  const panelBorder = isLight ? "rgba(8,145,178,0.24)" : "rgba(255,255,255,0.09)";
+  const panelText = isLight ? "#334155" : "rgba(255,255,255,0.60)";
+  const panelShadow = isLight ? "0 8px 24px rgba(15,23,42,0.10)" : "none";
 
   return (
-    <div className="w-full h-full relative bg-[#08080f]">
+    <div className={`w-full h-full relative ${isLight ? "bg-[#f8fbff]" : "bg-[#08080f]"}`}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -318,16 +325,31 @@ function TourCanvasInner({ blueprint, onExit, onOpenFile }: Props) {
         nodesDraggable={false}
         onNodeClick={(_e, node) => onOpenFile?.(node.id)}
       >
-        <Background variant={BackgroundVariant.Dots} gap={30} size={1} color="rgba(255,255,255,0.04)" />
-        <Controls className="bg-zinc-900/80! border-white/10! rounded-xl!" style={{ backdropFilter: "blur(8px)" }} />
+        <Background variant={BackgroundVariant.Dots} gap={30} size={1} color={isLight ? "rgba(14,116,144,0.16)" : "rgba(255,255,255,0.04)"} />
+        <Controls
+          className={`codesight-flow-controls ${isLight ? "codesight-flow-controls-light" : "codesight-flow-controls-dark"}`}
+          style={{
+            backdropFilter: "blur(8px)",
+            overflow: "hidden",
+            border: `1px solid ${isLight ? "rgba(8,145,178,0.38)" : "rgba(113,113,122,0.6)"}`,
+            borderRadius: "12px",
+            boxShadow: "0 10px 28px rgba(0,0,0,0.24)",
+            "--xy-controls-button-background-color": isLight ? "rgba(255,255,255,0.96)" : "rgba(24,24,27,0.94)",
+            "--xy-controls-button-background-color-hover": isLight ? "#ecfeff" : "#3f3f46",
+            "--xy-controls-button-color": isLight ? "#334155" : "#e4e4e7",
+            "--xy-controls-button-color-hover": isLight ? "#0e7490" : "#ffffff",
+            "--xy-controls-button-border-color": isLight ? "#e2e8f0" : "#3f3f46",
+            "--xy-controls-box-shadow": "none",
+          } as CSSProperties}
+        />
       </ReactFlow>
 
       {/* Header — where we started and which auth state this flow is */}
       <div className="absolute top-3 left-3 right-3 flex items-start gap-2 pointer-events-none">
         <button
           onClick={onExit}
-          className="pointer-events-auto flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-semibold transition-colors hover:bg-white/10"
-          style={{ background: "rgba(8,8,16,0.9)", border: "1px solid rgba(255,255,255,0.09)", color: "rgba(255,255,255,0.6)" }}
+          className={`pointer-events-auto flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold transition-colors ${isLight ? "hover:bg-cyan-50" : "hover:bg-white/10"}`}
+          style={{ background: panelSurface, border: `1px solid ${panelBorder}`, color: panelText, boxShadow: panelShadow }}
         >
           <ArrowLeft size={11} /> Back to graph
         </button>
@@ -344,14 +366,18 @@ function TourCanvasInner({ blueprint, onExit, onOpenFile }: Props) {
                   onClick={() => pickRoot(entry.file)}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-semibold transition-colors"
                   style={{
-                    background: active ? "rgba(99,102,241,0.2)" : "rgba(8,8,16,0.9)",
-                    border: `1px solid ${active ? "rgba(99,102,241,0.5)" : "rgba(255,255,255,0.09)"}`,
-                    color: active ? "rgba(199,210,254,0.95)" : "rgba(255,255,255,0.45)",
+                    borderRadius: 9,
+                    background: active
+                      ? (isLight ? "#eef2ff" : "rgba(99,102,241,0.2)")
+                      : panelSurface,
+                    border: `1px solid ${active ? (isLight ? "rgba(79,70,229,0.42)" : "rgba(99,102,241,0.5)") : panelBorder}`,
+                    color: active ? (isLight ? "#4338ca" : "rgba(199,210,254,0.95)") : panelText,
+                    boxShadow: panelShadow,
                   }}
                 >
                   <Icon size={11} style={{ color: active ? undefined : meta.color }} />
                   {entry.kind === "server" ? "Server start" : meta.label}
-                  <span className="font-mono text-white/35">{entry.url ?? ""}</span>
+                  <span className={`font-mono ${isLight ? "text-slate-500" : "text-white/35"}`}>{entry.url ?? ""}</span>
                 </button>
               );
             })}
@@ -363,14 +389,15 @@ function TourCanvasInner({ blueprint, onExit, onOpenFile }: Props) {
       <div className="absolute top-3 right-3 flex flex-col items-end gap-1.5 z-10">
         <button
           onClick={() => setFilterOpen((v) => !v)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-semibold transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold transition-colors"
           style={{
             background: filterOpen || selectedClusters.size > 0
-              ? "rgba(99,102,241,0.2)" : "rgba(8,8,16,0.9)",
+              ? (isLight ? "#eef2ff" : "rgba(99,102,241,0.2)") : panelSurface,
             border: `1px solid ${filterOpen || selectedClusters.size > 0
-              ? "rgba(99,102,241,0.5)" : "rgba(255,255,255,0.09)"}`,
+              ? (isLight ? "rgba(79,70,229,0.42)" : "rgba(99,102,241,0.5)") : panelBorder}`,
             color: filterOpen || selectedClusters.size > 0
-              ? "rgba(199,210,254,0.95)" : "rgba(255,255,255,0.45)",
+              ? (isLight ? "#4338ca" : "rgba(199,210,254,0.95)") : panelText,
+            boxShadow: panelShadow,
           }}
         >
           <Filter size={10} />
@@ -381,26 +408,27 @@ function TourCanvasInner({ blueprint, onExit, onOpenFile }: Props) {
           <div
             className="rounded-xl px-3 py-2.5 flex flex-col gap-1.5 w-[250px] overflow-y-auto"
             style={{
-              background: "rgba(8,8,16,0.95)",
-              border: "1px solid rgba(255,255,255,0.09)",
+              background: panelSurface,
+              border: `1px solid ${panelBorder}`,
               backdropFilter: "blur(14px)",
+              boxShadow: panelShadow,
               maxHeight: "min(56vh, 460px)",
             }}
           >
             <div className="flex items-center justify-between">
-              <span className="text-[8px] uppercase tracking-widest text-white/35">
+              <span className={`text-[8px] uppercase tracking-widest ${isLight ? "text-slate-500" : "text-white/35"}`}>
                 Walk only these modules
               </span>
               {selectedClusters.size > 0 && (
                 <button
                   onClick={() => { setSelectedClusters(new Set()); setDepth(0); }}
-                  className="text-[9px] text-indigo-400/80 hover:text-indigo-300"
+                  className={`text-[9px] ${isLight ? "text-indigo-600 hover:text-indigo-800" : "text-indigo-400/80 hover:text-indigo-300"}`}
                 >
                   clear
                 </button>
               )}
             </div>
-            <p className="text-[8px] text-white/25 leading-snug">
+            <p className={`text-[8px] leading-snug ${isLight ? "text-slate-500" : "text-white/25"}`}>
               The flow stops at anything unselected, so later modules only
               appear if they are reachable through the ones you pick.
             </p>
@@ -425,11 +453,11 @@ function TourCanvasInner({ blueprint, onExit, onOpenFile }: Props) {
                   </span>
                   <span
                     onClick={() => toggleCluster(opt.id)}
-                    className="text-[10px] text-white/55 group-hover:text-white/80 transition-colors flex-1 truncate"
+                    className={`text-[10px] transition-colors flex-1 truncate ${isLight ? "text-slate-700 group-hover:text-slate-950" : "text-white/55 group-hover:text-white/80"}`}
                   >
                     {opt.title}
                   </span>
-                  <span className="text-[9px] font-mono text-white/25">{opt.count}</span>
+                  <span className={`text-[9px] font-mono ${isLight ? "text-slate-500" : "text-white/25"}`}>{opt.count}</span>
                 </label>
               );
             })}
@@ -441,23 +469,23 @@ function TourCanvasInner({ blueprint, onExit, onOpenFile }: Props) {
       {journey && (
         <div
           className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 px-3 py-2 rounded-2xl"
-          style={{ background: "rgba(8,8,16,0.94)", border: "1px solid rgba(255,255,255,0.09)", backdropFilter: "blur(14px)" }}
+          style={{ background: panelSurface, border: `1px solid ${panelBorder}`, backdropFilter: "blur(14px)", boxShadow: panelShadow }}
         >
           <button
             onClick={() => step(safeDepth - 1)}
             disabled={safeDepth === 0}
-            className="p-1.5 rounded-lg transition-colors disabled:opacity-20 hover:bg-white/10"
+            className={`p-1.5 rounded-lg transition-colors disabled:opacity-20 ${isLight ? "hover:bg-slate-100" : "hover:bg-white/10"}`}
           >
-            <ChevronRight size={13} className="text-white/60 rotate-180" />
+            <ChevronRight size={13} className={`${isLight ? "text-slate-600" : "text-white/60"} rotate-180`} />
           </button>
 
           <div className="flex flex-col items-center min-w-[190px]">
-            <span className="text-[10px] font-semibold text-white/80">
+            <span className={`text-[10px] font-semibold ${isLight ? "text-slate-900" : "text-white/80"}`}>
               {safeDepth === 0
                 ? `Start · ${fileName(journey.steps[0]?.file ?? "")}`
                 : `Hop ${safeDepth} of ${maxDepth} · +${newCount} file(s)`}
             </span>
-            <span className="text-[9px] text-white/35">
+            <span className={`text-[9px] ${isLight ? "text-slate-500" : "text-white/35"}`}>
               {revealedCount} of {journey.steps.length} files revealed
             </span>
           </div>
@@ -467,8 +495,8 @@ function TourCanvasInner({ blueprint, onExit, onOpenFile }: Props) {
             disabled={atEnd}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-colors disabled:opacity-25"
             style={{
-              background: atEnd ? "rgba(255,255,255,0.05)" : "rgba(99,102,241,0.85)",
-              color: atEnd ? "rgba(255,255,255,0.4)" : "#fff",
+              background: atEnd ? (isLight ? "#f1f5f9" : "rgba(255,255,255,0.05)") : (isLight ? "#4f46e5" : "rgba(99,102,241,0.85)"),
+              color: atEnd ? (isLight ? "#64748b" : "rgba(255,255,255,0.4)") : "#fff",
             }}
           >
             {safeDepth === 0 ? <Play size={11} /> : null}
@@ -477,10 +505,10 @@ function TourCanvasInner({ blueprint, onExit, onOpenFile }: Props) {
 
           <button
             onClick={() => step(0)}
-            className="p-1.5 rounded-lg transition-colors hover:bg-white/10"
+            className={`p-1.5 rounded-lg transition-colors ${isLight ? "hover:bg-slate-100" : "hover:bg-white/10"}`}
             title="Restart"
           >
-            <RotateCcw size={12} className="text-white/45" />
+            <RotateCcw size={12} className={isLight ? "text-slate-500" : "text-white/45"} />
           </button>
         </div>
       )}
@@ -489,21 +517,21 @@ function TourCanvasInner({ blueprint, onExit, onOpenFile }: Props) {
       {journey && safeDepth > 0 && (
         <div
           className="absolute bottom-4 right-4 max-w-[260px] px-3 py-2 rounded-xl flex flex-col gap-1"
-          style={{ background: "rgba(8,8,16,0.92)", border: "1px solid rgba(255,255,255,0.08)" }}
+          style={{ background: panelSurface, border: `1px solid ${panelBorder}`, boxShadow: panelShadow }}
         >
-          <span className="text-[8px] uppercase tracking-widest text-indigo-300/70">
+          <span className={`text-[8px] uppercase tracking-widest ${isLight ? "text-indigo-600" : "text-indigo-300/70"}`}>
             This hop
           </span>
           {(byDepth.get(safeDepth) ?? []).slice(0, 5).map((s) => (
-            <span key={s.file} className="text-[9px] font-mono text-white/55 truncate">
+            <span key={s.file} className={`text-[9px] font-mono truncate ${isLight ? "text-slate-700" : "text-white/55"}`}>
               {fileName(s.file)}
-              <span className="text-white/25">
+              <span className={isLight ? "text-slate-400" : "text-white/25"}>
                 {" "}{LINK_LABELS[s.linkType ?? ""] ?? "from"} ← {fileName(s.via ?? "")}
               </span>
             </span>
           ))}
           {(byDepth.get(safeDepth)?.length ?? 0) > 5 && (
-            <span className="text-[9px] text-white/25">
+            <span className={`text-[9px] ${isLight ? "text-slate-400" : "text-white/25"}`}>
               +{(byDepth.get(safeDepth)?.length ?? 0) - 5} more
             </span>
           )}
@@ -512,7 +540,7 @@ function TourCanvasInner({ blueprint, onExit, onOpenFile }: Props) {
 
       {entryPoints.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <p className="text-[11px] text-white/35 max-w-xs text-center">
+          <p className={`text-[11px] max-w-xs text-center ${isLight ? "text-slate-500" : "text-white/35"}`}>
             No entry points found for this analysis. Re-analyze the project, or
             it may be a library with no screen a user lands on.
           </p>

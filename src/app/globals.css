@@ -1,17 +1,30 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *, .app-theme-dark, .app-theme-dark *));
 
-/*
- * This app has no dark theme: no component uses a `dark:` variant and
- * there is no theme provider/toggle anywhere. Pin the color scheme to
- * light so the OS/browser never substitutes its own dark-mode text and
- * form colors on top of our light-only card/input styling — that
- * mismatch was the cause of "gray, barely visible" text on browsers
- * where the user's OS/browser preference was set to dark.
- */
 :root {
   --background: #ffffff;
   --foreground: #171717;
-  color-scheme: light only;
+  --surface: #ffffff;
+  --surface-muted: #fafafa;
+  --border: #e4e4e7;
+  color-scheme: light;
+}
+
+:root.dark {
+  --background: #09090b;
+  --foreground: #f4f4f5;
+  --surface: #18181b;
+  --surface-muted: #27272a;
+  --border: #3f3f46;
+  color-scheme: dark;
+}
+
+.app-theme {
+  display: contents;
+}
+
+.app-theme-dark {
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -24,6 +37,7 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-poppins), sans-serif;
+  transition: background-color 160ms ease, color 160ms ease;
 }
 
 /*
@@ -38,7 +52,8 @@ body {
   input,
   textarea,
   select {
-    color: #171717;
+    color: var(--foreground);
+    color-scheme: inherit;
   }
 
   input:-webkit-autofill,
@@ -46,9 +61,165 @@ body {
   input:-webkit-autofill:focus,
   textarea:-webkit-autofill,
   select:-webkit-autofill {
-    -webkit-text-fill-color: #171717;
+    -webkit-text-fill-color: var(--foreground);
     transition: background-color 5000s ease-in-out 0s;
   }
+}
+
+/*
+ * The application predates its global theme and many feature components use
+ * literal Tailwind neutrals. These semantic remaps make every existing page,
+ * dialog and empty state participate in dark mode without changing component
+ * behavior. Purpose-built canvas colours continue to use their own theme prop.
+ */
+:where(html.dark, .app-theme-dark) .bg-white { background-color: #18181b; }
+:where(html.dark, .app-theme-dark) .bg-zinc-50 { background-color: #18181b; }
+:where(html.dark, .app-theme-dark) .bg-zinc-50\/60 { background-color: rgb(24 24 27 / 0.6); }
+:where(html.dark, .app-theme-dark) .bg-zinc-100 { background-color: #27272a; }
+:where(html.dark, .app-theme-dark) .border-zinc-100 { border-color: #27272a; }
+:where(html.dark, .app-theme-dark) .border-zinc-200 { border-color: #3f3f46; }
+:where(html.dark, .app-theme-dark) .border-zinc-300,
+:where(html.dark, .app-theme-dark) .border-zinc-300\/60 { border-color: #52525b; }
+:where(html.dark, .app-theme-dark) .divide-zinc-100 > :not(:last-child) { border-color: #27272a; }
+
+:where(html.dark, .app-theme-dark) .text-zinc-900,
+:where(html.dark, .app-theme-dark) .text-zinc-800 { color: #f4f4f5; }
+:where(html.dark, .app-theme-dark) .text-zinc-700 { color: #e4e4e7; }
+:where(html.dark, .app-theme-dark) .text-zinc-600 { color: #d4d4d8; }
+:where(html.dark, .app-theme-dark) .text-zinc-500 { color: #a1a1aa; }
+:where(html.dark, .app-theme-dark) .text-zinc-400 { color: #a1a1aa; }
+:where(html.dark, .app-theme-dark) .text-slate-950,
+:where(html.dark, .app-theme-dark) .text-slate-900 { color: #f1f5f9; }
+:where(html.dark, .app-theme-dark) .text-slate-700,
+:where(html.dark, .app-theme-dark) .text-slate-600 { color: #cbd5e1; }
+:where(html.dark, .app-theme-dark) .text-slate-500 { color: #94a3b8; }
+
+:where(html.dark, .app-theme-dark) .bg-cyan-50 { background-color: rgb(8 145 178 / 0.14); }
+:where(html.dark, .app-theme-dark) .bg-cyan-100 { background-color: rgb(8 145 178 / 0.22); }
+:where(html.dark, .app-theme-dark) .border-cyan-100,
+:where(html.dark, .app-theme-dark) .border-cyan-200 { border-color: rgb(34 211 238 / 0.25); }
+:where(html.dark, .app-theme-dark) .text-cyan-800,
+:where(html.dark, .app-theme-dark) .text-cyan-700,
+:where(html.dark, .app-theme-dark) .text-cyan-600 { color: #67e8f9; }
+
+:where(html.dark, .app-theme-dark) .bg-red-50 { background-color: rgb(127 29 29 / 0.25); }
+:where(html.dark, .app-theme-dark) .border-red-200 { border-color: rgb(248 113 113 / 0.3); }
+:where(html.dark, .app-theme-dark) .text-red-700,
+:where(html.dark, .app-theme-dark) .text-red-600 { color: #fca5a5; }
+:where(html.dark, .app-theme-dark) .bg-green-50 { background-color: rgb(20 83 45 / 0.25); }
+:where(html.dark, .app-theme-dark) .border-green-200 { border-color: rgb(74 222 128 / 0.3); }
+:where(html.dark, .app-theme-dark) .text-green-700,
+:where(html.dark, .app-theme-dark) .text-green-600 { color: #86efac; }
+:where(html.dark, .app-theme-dark) .bg-blue-50 { background-color: rgb(30 64 175 / 0.22); }
+
+:where(html.dark, .app-theme-dark) .hover\:bg-zinc-50:hover,
+:where(html.dark, .app-theme-dark) .hover\:bg-zinc-100:hover { background-color: #27272a; }
+:where(html.dark, .app-theme-dark) .hover\:bg-red-50:hover { background-color: rgb(127 29 29 / 0.35); }
+
+:where(html.dark, .app-theme-dark) input:not([type="checkbox"]):not([type="radio"]),
+:where(html.dark, .app-theme-dark) textarea,
+:where(html.dark, .app-theme-dark) select {
+  background-color: #18181b;
+  border-color: #52525b;
+}
+
+:where(html.dark, .app-theme-dark) input::placeholder,
+:where(html.dark, .app-theme-dark) textarea::placeholder { color: #71717a; }
+
+/* Authentication pages use a purpose-built glass surface instead of the
+ * dashboard's generic neutral remapping. */
+.auth-page {
+  background:
+    radial-gradient(circle at 18% 18%, rgb(34 211 238 / 0.12), transparent 30%),
+    radial-gradient(circle at 82% 76%, rgb(14 116 144 / 0.09), transparent 32%),
+    #f8fafc;
+}
+
+.auth-shell {
+  border: 1px solid rgb(255 255 255 / 0.82);
+  background: rgb(255 255 255 / 0.72);
+  box-shadow: 0 24px 70px rgb(15 23 42 / 0.16);
+  backdrop-filter: blur(22px);
+}
+
+.auth-brand-panel {
+  background: linear-gradient(145deg, rgb(236 254 255 / 0.58), rgb(255 255 255 / 0.2));
+}
+
+.auth-form-panel {
+  background: rgb(255 255 255 / 0.32);
+}
+
+.auth-divider {
+  background: rgb(148 163 184 / 0.38);
+}
+
+:where(html.dark, .app-theme-dark) .auth-page {
+  background:
+    radial-gradient(circle at 17% 16%, rgb(6 182 212 / 0.14), transparent 30%),
+    radial-gradient(circle at 84% 78%, rgb(37 99 235 / 0.08), transparent 34%),
+    #06090f;
+}
+
+:where(html.dark, .app-theme-dark) .auth-shell {
+  border-color: rgb(103 232 249 / 0.16);
+  background: rgb(12 17 27 / 0.9);
+  box-shadow: 0 28px 90px rgb(0 0 0 / 0.48), 0 0 0 1px rgb(255 255 255 / 0.025) inset;
+}
+
+:where(html.dark, .app-theme-dark) .auth-brand-panel {
+  background:
+    linear-gradient(150deg, rgb(8 145 178 / 0.13), transparent 58%),
+    rgb(15 23 35 / 0.72);
+}
+
+:where(html.dark, .app-theme-dark) .auth-form-panel {
+  background: rgb(8 13 22 / 0.72);
+}
+
+:where(html.dark, .app-theme-dark) .auth-divider {
+  background: rgb(103 232 249 / 0.17);
+}
+
+/* Chrome and Edge paint autofilled values with an internal light surface.
+ * Replace that inset paint so saved credentials remain readable in either
+ * theme. Firefox uses the unprefixed :autofill selector below. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: #18181b !important;
+  caret-color: #18181b;
+  -webkit-box-shadow: 0 0 0 1000px #f8fafc inset !important;
+  box-shadow: 0 0 0 1000px #f8fafc inset !important;
+  border-color: #22d3ee !important;
+}
+
+:where(html.dark, .app-theme-dark) input:-webkit-autofill,
+:where(html.dark, .app-theme-dark) input:-webkit-autofill:hover,
+:where(html.dark, .app-theme-dark) input:-webkit-autofill:focus,
+:where(html.dark, .app-theme-dark) textarea:-webkit-autofill,
+:where(html.dark, .app-theme-dark) select:-webkit-autofill {
+  -webkit-text-fill-color: #f4f4f5 !important;
+  caret-color: #f4f4f5;
+  -webkit-box-shadow: 0 0 0 1000px #111827 inset !important;
+  box-shadow: 0 0 0 1000px #111827 inset !important;
+  border-color: #22d3ee !important;
+}
+
+input:autofill,
+textarea:autofill,
+select:autofill {
+  color: #18181b !important;
+  background: #f8fafc !important;
+}
+
+:where(html.dark, .app-theme-dark) input:autofill,
+:where(html.dark, .app-theme-dark) textarea:autofill,
+:where(html.dark, .app-theme-dark) select:autofill {
+  color: #f4f4f5 !important;
+  background: #111827 !important;
 }
 .canvas-filter-light [class*="text-white"] {
   color: rgb(51 65 85) !important;
@@ -60,4 +231,70 @@ body {
 
 .canvas-filter-light [class*="border-white"] {
   border-color: rgb(165 243 252 / 0.9) !important;
+}
+
+/* React Flow supplies white button backgrounds independently of its controls
+ * container. Give every canvas control an explicit, high-contrast palette so
+ * the glyphs remain readable in both visualization themes. */
+.codesight-flow-controls {
+  overflow: hidden;
+  border: 1px solid !important;
+  border-radius: 0.75rem !important;
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.24) !important;
+}
+
+.codesight-flow-controls .react-flow__controls-button {
+  width: 30px;
+  height: 30px;
+  border-bottom: 1px solid !important;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.codesight-flow-controls .react-flow__controls-button:last-child {
+  border-bottom: 0 !important;
+}
+
+.codesight-flow-controls .react-flow__controls-button svg {
+  fill: currentColor;
+  max-width: 14px;
+  max-height: 14px;
+}
+
+.codesight-flow-controls .react-flow__controls-button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid #22d3ee;
+  outline-offset: -3px;
+}
+
+.codesight-flow-controls-light {
+  background: rgb(255 255 255 / 0.96) !important;
+  border-color: rgb(8 145 178 / 0.38) !important;
+}
+
+.codesight-flow-controls-light .react-flow__controls-button {
+  color: #334155 !important;
+  background: rgb(255 255 255 / 0.96) !important;
+  border-color: #e2e8f0 !important;
+}
+
+.codesight-flow-controls-light .react-flow__controls-button:hover {
+  color: #0e7490 !important;
+  background: #ecfeff !important;
+}
+
+.codesight-flow-controls-dark {
+  background: rgb(24 24 27 / 0.94) !important;
+  border-color: rgb(113 113 122 / 0.6) !important;
+}
+
+.codesight-flow-controls-dark .react-flow__controls-button {
+  color: #e4e4e7 !important;
+  background: rgb(24 24 27 / 0.94) !important;
+  border-color: #3f3f46 !important;
+}
+
+.codesight-flow-controls-dark .react-flow__controls-button:hover {
+  color: #ffffff !important;
+  background: #3f3f46 !important;
 }

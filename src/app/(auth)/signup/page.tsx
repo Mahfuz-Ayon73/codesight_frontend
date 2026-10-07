@@ -10,10 +10,10 @@ export default async function SignupPage({ searchParams }: Props) {
   const loginHref = redirect ? `/login?redirect=${encodeURIComponent(redirect)}` : "/login";
   return (
     <AuthPageBackgroundDesign maxWidth="max-w-[950px]">
-      <div className="flex w-full min-h-[450px] overflow-hidden rounded-2xl border border-white/30 bg-white/20 shadow-2xl backdrop-blur-md">
+      <div className="auth-shell flex w-full min-h-[450px] flex-col overflow-hidden rounded-2xl md:flex-row">
 
         {/* Left — branding */}
-        <div className="flex flex-[0.7] flex-col justify-center gap-5 px-10 py-16">
+        <div className="auth-brand-panel flex flex-[0.7] flex-col justify-center gap-5 px-8 py-10 md:px-10 md:py-16">
           <h1 className="text-5xl font-bold tracking-tight text-zinc-800">
             Code<span className="text-cyan-500">Sight</span>
           </h1>
@@ -29,10 +29,10 @@ export default async function SignupPage({ searchParams }: Props) {
         </div>
 
         {/* Divider */}
-        <div className="w-px h-64 my-auto bg-gray-300/70" />
+        <div className="auth-divider h-px mx-8 md:mx-0 md:h-64 md:w-px md:my-auto" />
 
         {/* Right — form */}
-        <div className="flex flex-[0.85] flex-col justify-center px-6 py-16 ">
+        <div className="auth-form-panel flex flex-[0.85] flex-col justify-center px-6 py-10 md:py-16">
           <h2 className="mb-6 text-xl font-semibold text-zinc-800 text-center">Create your Account</h2>
           <Suspense>
             <SignUpForm />

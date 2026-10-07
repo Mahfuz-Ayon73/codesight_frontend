@@ -81,7 +81,7 @@ export default function AuthPageBackgroundDesign({
   }
 
   return (
-    <div ref={containerRef} className="relative flex min-h-screen items-center justify-center bg-zinc-50 overflow-hidden">
+    <div ref={containerRef} className="auth-page relative flex min-h-screen items-center justify-center overflow-hidden py-8">
 
       {/* Edges — drawn in pixel space so they hit exact centers */}
       {dims.w > 0 && (

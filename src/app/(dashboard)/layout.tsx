@@ -34,7 +34,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       </aside>
 
       {/* Scrollable content — offset by navbar height and sidebar width */}
-      <main className="pt-14 pl-52 min-h-screen bg-white">
+      <main className="pt-14 pl-52 min-h-screen bg-white dark:bg-zinc-950">
         <div className="p-6 pb-12">
           {children}
         </div>
