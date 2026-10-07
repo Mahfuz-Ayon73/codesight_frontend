@@ -48,11 +48,11 @@ export default function SignUpForm() {
   return (
     <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-3">
 
-      <InputField label="First name" name="firstName" required />
-      <InputField label="Last name" name="lastName" required />
+      <InputField label="First name" name="firstName" autoComplete="given-name" required />
+      <InputField label="Last name" name="lastName" autoComplete="family-name" required />
 
       <div className="col-span-2">
-        <InputField label="Email" name="email" type="email" defaultValue={prefilledEmail} required />
+        <InputField label="Email" name="email" type="email" autoComplete="email" defaultValue={prefilledEmail} required />
       </div>
 
       <div className="flex flex-col gap-1">
@@ -61,6 +61,7 @@ export default function SignUpForm() {
           <input
             name="password"
             type={showPassword ? "text" : "password"}
+            autoComplete="new-password"
             required
             className="w-full rounded-lg border border-zinc-300/60 bg-white/40 px-3 py-2 pr-9 text-sm outline-none placeholder:text-zinc-400 focus:border-cyan-400 focus:bg-white/60 focus:ring-1 focus:ring-cyan-400 transition"
           />
@@ -77,6 +78,7 @@ export default function SignUpForm() {
           <input
             name="confirmPassword"
             type={showConfirm ? "text" : "password"}
+            autoComplete="new-password"
             required
             className="w-full rounded-lg border border-zinc-300/60 bg-white/40 px-3 py-2 pr-9 text-sm outline-none placeholder:text-zinc-400 focus:border-cyan-400 focus:bg-white/60 focus:ring-1 focus:ring-cyan-400 transition"
           />

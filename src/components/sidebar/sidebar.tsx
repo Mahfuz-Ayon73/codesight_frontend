@@ -68,7 +68,7 @@ export default function Sidebar({ organizations, skippedOrgSetup = false }: Prop
   }
 
   return (
-    <aside className="flex w-52 flex-col border-r border-zinc-200 bg-white h-full">
+    <aside className="flex w-52 flex-col border-r border-zinc-200 bg-white h-full dark:border-zinc-800 dark:bg-zinc-950">
       {/* Create project CTA */}
       <div className="p-3 border-b border-zinc-100">
         <button

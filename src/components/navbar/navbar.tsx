@@ -6,6 +6,7 @@ import Link from "next/link";
 import OrgSwitcher from "@/components/navbar/OrgSwitcher";
 import InviteDialog from "@/components/Organization/InviteDialog";
 import UserMenu from "@/components/navbar/UserMenu";
+import ThemeToggle from "@/components/theme/ThemeToggle";
 import type { User } from "@/types/auth/auth.schema";
 import type { Organization } from "@/types/organization/organization.schema";
 
@@ -18,7 +19,7 @@ export default function Navbar({ user, organizations }: Props) {
   const [inviteOpen, setInviteOpen] = useState(false);
 
   return (
-    <header className="flex h-14 items-center justify-between border-b border-zinc-200 bg-white px-4 gap-4">
+    <header className="flex h-14 items-center justify-between border-b border-zinc-200 bg-white px-4 gap-4 dark:border-zinc-800 dark:bg-zinc-950">
       {/* Left: Logo */}
       <Link href="/" className="flex items-center gap-2 min-w-[160px]">
         <span className="text-lg font-bold tracking-tight text-zinc-900">
@@ -40,6 +41,7 @@ export default function Navbar({ user, organizations }: Props) {
 
       {/* Right: actions */}
       <div className="flex items-center gap-3">
+        <ThemeToggle />
         <button className="rounded-full p-1.5 hover:bg-zinc-100 text-zinc-500">
           <Bell size={18} />
         </button>
