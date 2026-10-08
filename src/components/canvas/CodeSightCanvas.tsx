@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ReactFlow, Background, Controls,
-  useNodesState, useEdgesState, addEdge,
+  useNodesState, useEdgesState,
   type Node, type Edge, type OnEdgesDelete, type NodeMouseHandler, type EdgeMouseHandler,
   ReactFlowProvider, useReactFlow, Panel, BackgroundVariant,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import type { Blueprint, BlueprintNode, DiffStatus } from "@/types/project/project.schema";
+import type { Blueprint, BlueprintNode, DiffStatus, ManualGraphEdge } from "@/types/project/project.schema";
 import {
   buildClusterIndex, layoutClusterPills, layoutFileDetail, layoutFileFlow,
   CLUSTER_COLORS, clamp, EDGE_TYPE_COLORS, INFERRED_EDGE_TYPES,
@@ -33,18 +33,19 @@ import {
 import { useClusterOverrides } from "./useClusterOverrides";
 import { useNodeClusterMoves } from "./useNodeClusterMoves";
 import { useClusterNotes } from "./useClusterNotes";
+import { useGraphEditRevisions } from "./useGraphEditRevisions";
+import GraphVersionPanel from "./GraphVersionPanel";
 import { exportCanvasAsPng, exportGraphAsDrawio } from "./exportGraph";
 import {
-  Layers, FileCode, GitBranch, ArrowLeft, Info, Link2, Unlink,
+  Layers, FileCode, GitBranch, ArrowLeft, Info, Link2, Unlink, Link as LinkIcon,
   ChevronRight, ChevronLeft, GitMerge, Sparkles, Check, X, Tag,
   Download, Image as ImageIcon, Play,
 } from "lucide-react";
 
 const NODE_TYPES = { clusterGroup: ClusterGroupNode, fileCard: FileCardNode };
 
-// ---------------------------------------------------------------------------
-// Overrides persistence (localStorage — for severed edges)
-// ---------------------------------------------------------------------------
+// Legacy browser-local edge removals remain readable so the versioned editor
+// does not discard existing user work. New edits are stored in map revisions.
 interface UserOverrides {
   projectId: string;
   severedEdges: { edgeId: string; source: string; target: string }[];
@@ -54,12 +55,8 @@ function loadOverrides(pid: string): UserOverrides {
   try {
     const raw = localStorage.getItem(`codesight_overrides_${pid}`);
     if (raw) return JSON.parse(raw) as UserOverrides;
-  } catch { /* ignore */ }
+  } catch { /* ignore malformed or unavailable browser storage */ }
   return { projectId: pid, severedEdges: [], savedAt: 0 };
-}
-function saveOverrides(o: UserOverrides) {
-  try { localStorage.setItem(`codesight_overrides_${o.projectId}`, JSON.stringify({ ...o, savedAt: Date.now() })); }
-  catch { /* ignore */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +75,7 @@ interface NavEntry {
 // Inner canvas
 // ---------------------------------------------------------------------------
 function InnerCanvas({
-  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters, canAddNotes, currentUserId, diffOverlay, theme,
+  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters, canEditRelationships, canAddNotes, currentUserId, diffOverlay, theme,
 }: {
   blueprint: Blueprint;
   projectId: string;
@@ -86,6 +83,8 @@ function InnerCanvas({
   onEdgeSelect?: (selection: EdgeDiffSelection | null) => void;
   onStartTour?: () => void;
   canEditClusters?: boolean;
+  /** MEMBER/ADMIN/OWNER — enables versioned human-authored file relationships. */
+  canEditRelationships?: boolean;
   /** MEMBER/ADMIN/OWNER — enables adding a note in the cluster summary panel; VIEWER can still read. */
   canAddNotes?: boolean;
   currentUserId?: string | null;
@@ -96,6 +95,18 @@ function InnerCanvas({
   const { fitView, getNodes, getEdges } = useReactFlow();
   const overridesRef = useRef<UserOverrides>(loadOverrides(projectId));
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
+  const [viewingOriginal, setViewingOriginal] = useState(false);
+
+  const {
+    revisions: editRevisions,
+    activeRevision,
+    selectRevision,
+    createRevision,
+    deleteRevision,
+    saveRevision,
+    saving: revisionSaving,
+    error: revisionError,
+  } = useGraphEditRevisions(orgId ?? "", projectId);
 
   // Manual file placements are an overlay on the immutable analyzer blueprint.
   const {
@@ -104,13 +115,42 @@ function InnerCanvas({
     applyMove: applyNodeMove,
     snapshotReady: nodeMovesReady,
   } = useNodeClusterMoves(orgId ?? "", projectId);
-  const effectiveBlueprint = useMemo<Blueprint>(() => ({
-    ...blueprint,
-    nodes: blueprint.nodes.map((node) => {
-      const override = nodeClusterOverrides.get(node.canonical_path);
-      return override ? { ...node, cluster_id: override.overrideClusterId } : node;
-    }),
-  }), [blueprint, nodeClusterOverrides]);
+  const effectiveBlueprint = useMemo<Blueprint>(() => {
+    if (viewingOriginal) return blueprint;
+    const legacyRemoved = new Set(overridesRef.current.severedEdges.map((edge) => edge.edgeId));
+    if (!activeRevision) {
+      return {
+        ...blueprint,
+        nodes: blueprint.nodes.map((node) => {
+          const override = nodeClusterOverrides.get(node.canonical_path);
+          return override ? { ...node, cluster_id: override.overrideClusterId } : node;
+        }),
+        edges: blueprint.edges.filter((edge) => !legacyRemoved.has(`e-${edge.source}-${edge.target}`)),
+      };
+    }
+    const removed = new Set(activeRevision.removedEdgeIds);
+    const originalEdges = blueprint.edges.filter(
+      (edge) => !removed.has(`e-${edge.source}-${edge.target}`),
+    );
+    const manualEdges = activeRevision.addedEdges.map((edge) => ({
+      source: edge.source,
+      target: edge.target,
+      type: "USER_DEFINED",
+      weight: 1,
+      binding: edge.label ?? "Human-defined relationship",
+      called_names: edge.note ? [edge.note] : [],
+      is_dead_import: false,
+      is_synthetic: true,
+    }));
+    return {
+      ...blueprint,
+      nodes: blueprint.nodes.map((node) => {
+        const override = nodeClusterOverrides.get(node.canonical_path);
+        return override ? { ...node, cluster_id: override.overrideClusterId } : node;
+      }),
+      edges: [...originalEdges, ...manualEdges],
+    };
+  }, [blueprint, nodeClusterOverrides, activeRevision, viewingOriginal]);
 
   // Pre-build the full cluster index from effective (analyzer + manual) membership.
   const index = useMemo(() => buildClusterIndex(effectiveBlueprint), [effectiveBlueprint]);
@@ -135,6 +175,11 @@ function InnerCanvas({
   const [connectivity, setConnectivity] = useState<ReturnType<typeof computeClusterRelationships> | null>(null);
   // File node clicked in structure/flow view — opens the code preview panel.
   const [selectedFileNode, setSelectedFileNode] = useState<BlueprintNode | null>(null);
+  const [connectMode, setConnectMode] = useState(false);
+  const [connectSourceId, setConnectSourceId] = useState<string | null>(null);
+  const [pendingConnection, setPendingConnection] = useState<{ source: string; target: string } | null>(null);
+  const [connectionLabel, setConnectionLabel] = useState("");
+  const [connectionNote, setConnectionNote] = useState("");
 
   // Fast id → node lookup for edge-click resolution.
   const nodeById = useMemo(
@@ -245,7 +290,7 @@ function InnerCanvas({
 
     const interPairs = new Map<string, number>();
     const byType = new Map<string, Map<string, number>>();
-    for (const e of blueprint.edges) {
+    for (const e of effectiveBlueprint.edges) {
       if (e.is_dead_import && !edgeFilters.showDeadImports) continue;
       if (!typeVisible(e.type)) continue;
       const sc = nodeToVisible.get(e.source);
@@ -280,16 +325,17 @@ function InnerCanvas({
       });
     }
     return result;
-  }, [visibleClusters, index, blueprint.edges, edgeFilters]);
+  }, [visibleClusters, index, effectiveBlueprint.edges, edgeFilters]);
 
   // When drilled inside a merged group, suppress that group's own merge so source clusters show individually
   const activeMerges = useMemo(() => {
+    if (viewingOriginal) return [];
     if (currentEntry.isMergedGroup && currentEntry.sourceIds) {
       const sourceSet = new Set(currentEntry.sourceIds);
       return merges.filter((m) => !m.sourceIds.every((sid) => sourceSet.has(sid)));
     }
     return merges;
-  }, [merges, currentEntry]);
+  }, [merges, currentEntry, viewingOriginal]);
 
   // Auto-open sidebar when entering a merged group, close when leaving —
   // but only until the user manually toggles it, so a manual collapse sticks.
@@ -422,7 +468,7 @@ function InnerCanvas({
       const merge = mergeById.get(cid);
       // Merged/virtual clusters (synthetic ids, not real blueprint clusters)
       // aren't renameable — there's no single clusterId to attach the override to.
-      const override = merge ? undefined : overrides.get(cid);
+      const override = merge || viewingOriginal ? undefined : overrides.get(cid);
       return {
         ...n,
         data: {
@@ -433,14 +479,14 @@ function InnerCanvas({
           mergedCount: merge?.sourceIds.length,
           onUnmerge:   merge ? removeMerge : undefined,
           hideName:    inMergedGroup,
-          canEditTitle: !merge && canEditClusters,
-          onSaveTitle:  !merge && canEditClusters ? saveClusterTitle : undefined,
+          canEditTitle: !merge && canEditClusters && !viewingOriginal,
+          onSaveTitle:  !merge && canEditClusters && !viewingOriginal ? saveClusterTitle : undefined,
           onOpenSummary: merge ? undefined : setSummaryClusterId,
           visualTheme: theme,
         },
       };
     });
-  }, [viewMode, virtualClusters, index, colorOffset, fileCountOverride, mergeById, selectedClusterIds, removeMerge, currentEntry.isMergedGroup, overrides, canEditClusters, saveClusterTitle, theme]);
+  }, [viewMode, virtualClusters, index, colorOffset, fileCountOverride, mergeById, selectedClusterIds, removeMerge, currentEntry.isMergedGroup, overrides, canEditClusters, saveClusterTitle, theme, viewingOriginal]);
 
   // Re-fit only when the layout itself changed, not on styling passes.
   useEffect(() => {
@@ -516,15 +562,15 @@ function InnerCanvas({
     const edgeColor = CLUSTER_COLORS[ci]?.border ?? "rgba(99,102,241,0.50)";
 
     if (flowActive) {
-      const { nodes: fn, edges: fe } = layoutFileFlow(cluster, members, blueprint.edges, ci);
-      const rel = computeClusterRelationships(activeLeaf, blueprint, edgeColor, true);
+      const { nodes: fn, edges: fe } = layoutFileFlow(cluster, members, effectiveBlueprint.edges, ci);
+      const rel = computeClusterRelationships(activeLeaf, effectiveBlueprint, edgeColor, true);
       setConnectivity(rel);
 
       // Build reachable-node set from the selected entry (BFS over active edges)
       const reachableFromEntry = new Set<string>();
       if (!showAllFlowEdges && selectedFlowEntry) {
         const memberSet = new Set(members.map((m) => m.id));
-        const activeEdges = blueprint.edges.filter(
+        const activeEdges = effectiveBlueprint.edges.filter(
           (e) => memberSet.has(e.source) && memberSet.has(e.target) && !e.is_dead_import
         );
         const adjFwd = new Map<string, string[]>();
@@ -591,27 +637,65 @@ function InnerCanvas({
           }))
         : filteredEdges);
     } else {
-      const { nodes: dn, edges: de } = layoutFileDetail(cluster, members, blueprint.edges, ci);
-      const rel = computeClusterRelationships(activeLeaf, blueprint, edgeColor, false);
+      const { nodes: dn, edges: de } = layoutFileDetail(cluster, members, effectiveBlueprint.edges, ci);
+      const rel = computeClusterRelationships(activeLeaf, effectiveBlueprint, edgeColor, false);
       setConnectivity(rel);
-      const severedIds = new Set(overridesRef.current.severedEdges.map((s) => s.edgeId));
       setNodes(dn.map((n) => {
         const conn = rel.connectivity.get(n.id);
         const diffStatus = n.type === "fileCard" ? diffOverlay?.get(n.data.canonical_path as string) : undefined;
-        if (!conn && !diffStatus) return { ...n, data: { ...n.data, visualTheme: theme } };
-        return { ...n, data: { ...n.data, visualTheme: theme, ...(conn ? { isOrphan: conn.isOrphan, edgeCount: conn.edgeCount, flowActive: false } : {}), diffStatus } };
+        if (!conn && !diffStatus) return { ...n, selected: connectSourceId === n.id, data: { ...n.data, visualTheme: theme } };
+        return { ...n, selected: connectSourceId === n.id, data: { ...n.data, visualTheme: theme, ...(conn ? { isOrphan: conn.isOrphan, edgeCount: conn.edgeCount, flowActive: false } : {}), diffStatus } };
       }));
-      setEdges(de.filter((e) => !severedIds.has(e.id)));
+      setEdges(de);
     }
     setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 60);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, activeLeaf, flowActive, showAllFlowEdges, selectedFlowEntry, index, blueprint, colorOffset, fitView, setNodes, setEdges, onEdgeSelect, diffOverlay, theme]);
+  }, [viewMode, activeLeaf, flowActive, showAllFlowEdges, selectedFlowEntry, index, effectiveBlueprint, colorOffset, fitView, setNodes, setEdges, onEdgeSelect, diffOverlay, theme, connectSourceId]);
 
   // ---------------------------------------------------------------------------
   // Click handler
   // ---------------------------------------------------------------------------
+  const cancelConnection = useCallback(() => {
+    setConnectMode(false);
+    setConnectSourceId(null);
+    setPendingConnection(null);
+    setConnectionLabel("");
+    setConnectionNote("");
+  }, []);
+
+  const saveConnection = useCallback(async () => {
+    if (!activeRevision || !pendingConnection) return;
+    const duplicate = effectiveBlueprint.edges.some(
+      (edge) => edge.source === pendingConnection.source && edge.target === pendingConnection.target,
+    );
+    if (duplicate) {
+      cancelConnection();
+      return;
+    }
+    const edge: ManualGraphEdge = {
+      id: `user-${crypto.randomUUID()}`,
+      source: pendingConnection.source,
+      target: pendingConnection.target,
+      type: "USER_DEFINED",
+      label: connectionLabel.trim() || "Human-defined relationship",
+      note: connectionNote.trim() || null,
+    };
+    const saved = await saveRevision(activeRevision, {
+      addedEdges: [...activeRevision.addedEdges, edge],
+    });
+    if (saved) cancelConnection();
+  }, [activeRevision, pendingConnection, effectiveBlueprint.edges, connectionLabel, connectionNote, saveRevision, cancelConnection]);
+
   const onNodeClick: NodeMouseHandler = useCallback((event, node) => {
     if (node.type === "fileCard") {
+      if (connectMode && activeRevision) {
+        if (!connectSourceId) {
+          setConnectSourceId(node.id);
+        } else if (connectSourceId !== node.id) {
+          setPendingConnection({ source: connectSourceId, target: node.id });
+        }
+        return;
+      }
       setSelectedFileNode(node.data as unknown as BlueprintNode);
       return;
     }
@@ -657,7 +741,7 @@ function InnerCanvas({
       setViewMode("file-detail");
       setFlowActive(false);
     }
-  }, [viewMode, mergeById]);
+  }, [viewMode, mergeById, connectMode, connectSourceId, activeRevision]);
 
   const onEdgeClick: EdgeMouseHandler = useCallback((_event, edge) => {
     if (!flowActive) return;
@@ -736,19 +820,20 @@ function InnerCanvas({
   // Edge deletion
   // ---------------------------------------------------------------------------
   const onEdgesDelete: OnEdgesDelete = useCallback((deleted) => {
-    const overrides = overridesRef.current;
-    for (const e of deleted) {
-      if (!overrides.severedEdges.find((s) => s.edgeId === e.id)) {
-        overrides.severedEdges.push({ edgeId: e.id, source: e.source, target: e.target });
-      }
-    }
-    saveOverrides(overrides);
-  }, []);
-
-  const onConnect = useCallback(
-    (params: Parameters<typeof addEdge>[0]) => setEdges((eds) => addEdge(params, eds)),
-    [setEdges]
-  );
+    if (!activeRevision || deleted.length === 0) return;
+    const deletedPairs = new Set(deleted.map((edge) => `${edge.source}\u0000${edge.target}`));
+    const addedEdges = activeRevision.addedEdges.filter(
+      (edge) => !deletedPairs.has(`${edge.source}\u0000${edge.target}`),
+    );
+    const manualPairs = new Set(activeRevision.addedEdges.map((edge) => `${edge.source}\u0000${edge.target}`));
+    const removedEdgeIds = [
+      ...activeRevision.removedEdgeIds,
+      ...deleted
+        .filter((edge) => !manualPairs.has(`${edge.source}\u0000${edge.target}`))
+        .map((edge) => `e-${edge.source}-${edge.target}`),
+    ].filter((id, index, all) => all.indexOf(id) === index);
+    void saveRevision(activeRevision, { addedEdges, removedEdgeIds });
+  }, [activeRevision, saveRevision]);
 
   // ---------------------------------------------------------------------------
   // Export — current view only (whatever level/mode is on screen right now)
@@ -777,7 +862,7 @@ function InnerCanvas({
   const isRoot         = navStack.length === 1 && viewMode === "cluster-list";
   const activeCluster  = activeLeaf ? index.clusterById.get(activeLeaf) : null;
   const canGoBack      = !isRoot;
-  const mergesActive   = !!orgId;
+  const mergesActive   = !!orgId && !viewingOriginal;
   const isLight        = theme === "light";
   const panelSurface   = isLight ? "rgba(255,255,255,0.96)" : "rgba(8,8,16,0.88)";
   const panelBorder    = isLight ? "rgba(6,182,212,0.48)" : "rgba(255,255,255,0.08)";
@@ -797,16 +882,15 @@ function InnerCanvas({
         nodeTypes={NODE_TYPES}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
         onNodeClick={onNodeClick}
         onEdgeClick={onEdgeClick}
         onEdgesDelete={onEdgesDelete}
-        deleteKeyCode="Delete"
+        deleteKeyCode={activeRevision ? "Delete" : null}
         fitView minZoom={0.03} maxZoom={2.5}
         proOptions={{ hideAttribution: true }}
         style={{ background: "transparent" }}
         nodesDraggable={viewMode === "file-detail"}
-        nodesConnectable={viewMode === "file-detail"}
+        nodesConnectable={false}
         elementsSelectable={viewMode === "file-detail"}
       >
         <Background variant={BackgroundVariant.Dots} gap={30} size={1} color={isLight ? "rgba(6,182,212,0.14)" : "rgba(255,255,255,0.035)"} />
@@ -871,6 +955,32 @@ function InnerCanvas({
                     Flow
                   </button>
                 </div>
+
+                {!flowActive && (
+                  <button
+                    onClick={() => {
+                      if (!activeRevision) return;
+                      setConnectMode((value) => !value);
+                      setConnectSourceId(null);
+                      setPendingConnection(null);
+                    }}
+                    disabled={!canEditRelationships || !activeRevision || revisionSaving}
+                    title={!canEditRelationships
+                      ? "Your project role has read-only access to relationships"
+                      : activeRevision
+                        ? "Select a source file, then a target file"
+                        : "Create or select an editable map version first"}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold transition-all disabled:opacity-40"
+                    style={{
+                      background: connectMode ? "rgba(139,92,246,0.24)" : panelSurface,
+                      border: `1px solid ${connectMode ? "rgba(167,139,250,0.65)" : panelBorder}`,
+                      color: connectMode ? (isLight ? "#6d28d9" : "#c4b5fd") : panelText,
+                    }}
+                  >
+                    <LinkIcon size={9} />
+                    {connectMode ? (connectSourceId ? "Select target" : "Select source") : "Connect files"}
+                  </button>
+                )}
 
                 {/* Show-all-edges toggle — only visible in flow mode */}
                 {flowActive && (
@@ -949,6 +1059,60 @@ function InnerCanvas({
         {/* Top-right: export, hint + merge controls */}
         <Panel position="top-right">
           <div className="flex flex-col items-end gap-2">
+
+            {orgId && (
+              <GraphVersionPanel
+                revisions={editRevisions}
+                activeRevision={activeRevision}
+                viewingOriginal={viewingOriginal}
+                onSelectRevision={(id) => {
+                  cancelConnection();
+                  setSelectedFileNode(null);
+                  setSummaryClusterId(null);
+                  setViewingOriginal(false);
+                  selectRevision(id);
+                  setNavStack([{ clusterId: null, label: "Overview" }]);
+                  setViewMode("cluster-list");
+                  setActiveLeaf(null);
+                  setFlowActive(false);
+                }}
+                onSelectOriginal={() => {
+                  cancelConnection();
+                  setSelectedFileNode(null);
+                  setSummaryClusterId(null);
+                  setViewingOriginal(true);
+                  selectRevision(null);
+                  setNavStack([{ clusterId: null, label: "Overview" }]);
+                  setViewMode("cluster-list");
+                  setActiveLeaf(null);
+                  setFlowActive(false);
+                }}
+                onSelectWorkspace={() => {
+                  cancelConnection();
+                  setSelectedFileNode(null);
+                  setSummaryClusterId(null);
+                  setViewingOriginal(false);
+                  selectRevision(null);
+                  setNavStack([{ clusterId: null, label: "Overview" }]);
+                  setViewMode("cluster-list");
+                  setActiveLeaf(null);
+                  setFlowActive(false);
+                }}
+                onCreate={async (copyCurrent) => {
+                  const created = await createRevision(copyCurrent);
+                  if (created) setViewingOriginal(false);
+                  return created;
+                }}
+                onDelete={async (id) => {
+                  cancelConnection();
+                  return deleteRevision(id);
+                }}
+                canEdit={!!canEditRelationships}
+                saving={revisionSaving}
+                error={revisionError}
+                theme={theme}
+              />
+            )}
 
             {/* Guided walkthrough. Lives in this stack rather than floating at
                 top-left, where it sat on top of the breadcrumb's Back button. */}
@@ -1103,7 +1267,15 @@ function InnerCanvas({
                 <Info size={9} />
                 {viewMode === "cluster-list"
                   ? (selectedClusterIds.size > 0 ? "Shift-click to select · Merge to combine" : "Click to drill in · Shift-click to select")
-                  : flowActive ? "Flow mode — active calls only" : "Delete key removes edges"}
+                  : flowActive
+                    ? "Flow mode — active calls only"
+                    : !canEditRelationships
+                      ? "Relationship editing is disabled for your project role"
+                      : viewingOriginal
+                      ? "Original analyzer map · read-only"
+                      : activeRevision
+                        ? "Connect files or press Delete to remove a relationship"
+                        : "Select or create a version to edit relationships"}
               </div>
             </div>
           </div>
@@ -1273,6 +1445,57 @@ function InnerCanvas({
         </div>
       )}
 
+      {pendingConnection && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/35 backdrop-blur-[2px]">
+          <div
+            className="w-[min(420px,calc(100%-32px))] rounded-2xl p-4"
+            style={{ background: panelSurface, border: `1px solid ${panelBorder}`, boxShadow: "0 24px 70px rgba(0,0,0,0.45)" }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className={`text-sm font-semibold ${isLight ? "text-slate-900" : "text-white/85"}`}>Add human relationship</p>
+                <p className={`mt-1 text-[10px] font-mono break-all ${isLight ? "text-slate-500" : "text-white/40"}`}>
+                  {pendingConnection.source} → {pendingConnection.target}
+                </p>
+              </div>
+              <button onClick={cancelConnection} className={isLight ? "text-slate-400" : "text-white/30"}><X size={14} /></button>
+            </div>
+            <label className={`block mt-4 text-[10px] font-semibold ${isLight ? "text-slate-600" : "text-white/55"}`}>
+              Relationship label
+              <input
+                autoFocus
+                value={connectionLabel}
+                onChange={(event) => setConnectionLabel(event.target.value)}
+                maxLength={256}
+                placeholder="e.g. Uses data from"
+                className={`mt-1 w-full rounded-xl px-3 py-2 text-xs outline-none ${isLight ? "bg-slate-50 text-slate-900 border border-slate-200" : "bg-white/5 text-white/80 border border-white/10"}`}
+              />
+            </label>
+            <label className={`block mt-3 text-[10px] font-semibold ${isLight ? "text-slate-600" : "text-white/55"}`}>
+              Reason or note <span className="font-normal opacity-60">(optional)</span>
+              <textarea
+                value={connectionNote}
+                onChange={(event) => setConnectionNote(event.target.value)}
+                maxLength={1000}
+                rows={3}
+                placeholder="Explain why these files are related"
+                className={`mt-1 w-full resize-none rounded-xl px-3 py-2 text-xs outline-none ${isLight ? "bg-slate-50 text-slate-900 border border-slate-200" : "bg-white/5 text-white/80 border border-white/10"}`}
+              />
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={cancelConnection} className={`px-3 py-1.5 rounded-lg text-[10px] ${isLight ? "text-slate-600" : "text-white/50"}`}>Cancel</button>
+              <button
+                onClick={() => void saveConnection()}
+                disabled={revisionSaving}
+                className="px-3 py-1.5 rounded-lg text-[10px] font-semibold bg-violet-600 text-white disabled:opacity-50"
+              >
+                {revisionSaving ? "Saving…" : "Save relationship"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <CodeViewerPanel
         key={`${effectiveSelectedFileNode?.id ?? "closed"}:${effectiveSelectedFileNode?.cluster_id ?? ""}`}
         node={effectiveSelectedFileNode}
@@ -1280,15 +1503,15 @@ function InnerCanvas({
         projectId={projectId}
         onClose={() => setSelectedFileNode(null)}
         theme={theme}
-        canMove={!!canEditClusters && nodeMovesReady}
+        canMove={!!canEditClusters && nodeMovesReady && !viewingOriginal}
         clusterOptions={moveTargetClusters}
         onPreviewMove={previewNodeMove}
         onApplyMove={applyNodeMove}
       />
       <ClusterSummaryPanel
         cluster={summaryClusterId ? index.clusterById.get(summaryClusterId) ?? null : null}
-        override={summaryClusterId ? overrides.get(summaryClusterId) : undefined}
-        canEdit={!!canEditClusters}
+        override={!viewingOriginal && summaryClusterId ? overrides.get(summaryClusterId) : undefined}
+        canEdit={!!canEditClusters && !viewingOriginal}
         saving={summaryClusterId ? overrideSavingIds.has(summaryClusterId) : false}
         onSave={saveClusterSummary}
         onClose={() => setSummaryClusterId(null)}
@@ -1310,7 +1533,7 @@ function InnerCanvas({
 // Public export
 // ---------------------------------------------------------------------------
 export default function CodeSightCanvas({
-  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters, canAddNotes, currentUserId, diffOverlay, theme = "dark",
+  blueprint, projectId, orgId, onEdgeSelect, onStartTour, canEditClusters, canEditRelationships, canAddNotes, currentUserId, diffOverlay, theme = "dark",
 }: {
   blueprint: Blueprint;
   projectId: string;
@@ -1320,6 +1543,8 @@ export default function CodeSightCanvas({
   onStartTour?: () => void;
   /** ADMIN/OWNER only — enables double-click-to-rename on cluster pills. */
   canEditClusters?: boolean;
+  /** MEMBER/ADMIN/OWNER — enables versioned human-authored file relationships. */
+  canEditRelationships?: boolean;
   /** MEMBER/ADMIN/OWNER — enables adding a note in the cluster summary panel; VIEWER can still read. */
   canAddNotes?: boolean;
   currentUserId?: string | null;
@@ -1353,6 +1578,7 @@ export default function CodeSightCanvas({
       <InnerCanvas
         blueprint={blueprint} projectId={projectId} orgId={orgId}
         onEdgeSelect={onEdgeSelect} onStartTour={onStartTour} canEditClusters={canEditClusters}
+        canEditRelationships={canEditRelationships}
         canAddNotes={canAddNotes} currentUserId={currentUserId}
         diffOverlay={diffOverlay}
         theme={theme}

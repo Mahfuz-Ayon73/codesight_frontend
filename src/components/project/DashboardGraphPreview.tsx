@@ -36,6 +36,7 @@ export default function DashboardGraphPreview({
   projectId,
   orgId,
   canEditClusters,
+  canEditRelationships,
   canAddNotes,
   currentUserId,
 }: {
@@ -43,6 +44,7 @@ export default function DashboardGraphPreview({
   projectId: string;
   orgId?: string;
   canEditClusters?: boolean;
+  canEditRelationships?: boolean;
   canAddNotes?: boolean;
   currentUserId?: string | null;
 }) {
@@ -165,6 +167,7 @@ export default function DashboardGraphPreview({
             // aligns with Export instead of overlapping the breadcrumb.
             onStartTour={hasTour ? () => setTourOpen(true) : undefined}
             canEditClusters={canEditClusters}
+            canEditRelationships={canEditRelationships}
             canAddNotes={canAddNotes}
             currentUserId={currentUserId}
             diffOverlay={diffOverlay}

@@ -85,6 +85,31 @@ export interface BlueprintEdge {
   target_line?: number | null;
 }
 
+export interface ManualGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  type: "USER_DEFINED";
+  label?: string | null;
+  note?: string | null;
+}
+
+/** A persisted human-in-the-loop overlay on one immutable analyzer snapshot. */
+export interface GraphEditRevision {
+  id: string;
+  snapshotId: string;
+  revisionNumber: number;
+  name: string;
+  description?: string | null;
+  addedEdges: ManualGraphEdge[];
+  removedEdgeIds: string[];
+  editedBy: string;
+  editorName: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
 export type DomainType = "CANONICAL" | "EMERGENT" | "INFRASTRUCTURE" | "UNCLASSIFIED";
 
 export interface BlueprintCluster {

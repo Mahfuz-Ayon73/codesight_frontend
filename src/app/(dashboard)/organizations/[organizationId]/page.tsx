@@ -71,7 +71,12 @@ export default async function OrgWorkspacePage({ params, searchParams }: Props) 
   // cluster notes (SRS 2.2.9) are gated one tier lower at MEMBER — resolve the
   // caller's role on this specific project alongside the blueprint fetch so we
   // don't add a second round trip after the page has already loaded.
-  type CanvasPermissions = { canEditClusters: boolean; canAddNotes: boolean; currentUserId: string | null };
+  type CanvasPermissions = {
+    canEditClusters: boolean;
+    canEditRelationships: boolean;
+    canAddNotes: boolean;
+    currentUserId: string | null;
+  };
   const [blueprint, permissions]: [Blueprint | null, CanvasPermissions] = hasAnalysis && targetProject
     ? await Promise.all([
         projectService.getBlueprint(token, organizationId, targetProject.id).catch(() => null),
@@ -79,17 +84,28 @@ export default async function OrgWorkspacePage({ params, searchParams }: Props) 
           projectService.listMembers(token, organizationId, targetProject.id).catch(() => []),
           getProfileAction().catch(() => null),
         ]).then(([members, currentUser]) => {
-          if (!currentUser) return { canEditClusters: false, canAddNotes: false, currentUserId: null };
+          if (!currentUser) return {
+            canEditClusters: false,
+            canEditRelationships: false,
+            canAddNotes: false,
+            currentUserId: null,
+          };
           const myRole = members.find((m) => m.userId === currentUser.id)?.role;
           return {
             canEditClusters: myRole === "ADMIN" || myRole === "OWNER",
+            canEditRelationships: myRole === "MEMBER" || myRole === "ADMIN" || myRole === "OWNER",
             canAddNotes: myRole === "ADMIN" || myRole === "OWNER" || myRole === "MEMBER",
             currentUserId: currentUser.id,
           };
         }),
       ])
-    : [null, { canEditClusters: false, canAddNotes: false, currentUserId: null }];
-  const { canEditClusters, canAddNotes, currentUserId } = permissions;
+    : [null, {
+        canEditClusters: false,
+        canEditRelationships: false,
+        canAddNotes: false,
+        currentUserId: null,
+      }];
+  const { canEditClusters, canEditRelationships, canAddNotes, currentUserId } = permissions;
 
   return (
     <div className="max-w-5xl mx-auto flex flex-col gap-6">
@@ -137,6 +153,7 @@ export default async function OrgWorkspacePage({ params, searchParams }: Props) 
               <DashboardGraphPreview
                 blueprint={blueprint} projectId={targetProject.id} orgId={organizationId}
                 canEditClusters={canEditClusters}
+                canEditRelationships={canEditRelationships}
                 canAddNotes={canAddNotes}
                 currentUserId={currentUserId}
               />
