@@ -11,13 +11,14 @@ export const EDGE_TYPE_COLORS = {
   CALLS_API:           "rgba(244,114,182,0.85)",
   EMITS_EVENT:         "rgba(251,146,60,0.85)",
   PROVIDES_STATE:      "rgba(168,85,247,0.85)",
+  USER_DEFINED:        "rgba(139,92,246,0.95)",
 } as const;
 
 // Runtime links the import graph cannot express — a shared URL, an event
 // name, or a context provider feeding its consumers. They carry weight 0.0
 // and are drawn dashed so an inferred hop never reads as a certain one.
 export const INFERRED_EDGE_TYPES: ReadonlySet<string> = new Set([
-  "CALLS_API", "EMITS_EVENT", "PROVIDES_STATE", "SEMANTIC_SIMILARITY",
+  "CALLS_API", "EMITS_EVENT", "PROVIDES_STATE", "SEMANTIC_SIMILARITY", "USER_DEFINED",
 ]);
 
 export interface EdgeFilterOptions {
@@ -256,12 +257,23 @@ export function layoutFileDetail(
   const memberSet = new Set(members.map((n) => n.id));
   const detailEdges: Edge[] = edges
     .filter((e) => memberSet.has(e.source) && memberSet.has(e.target))
-    .map((e) => ({
-      id: `e-${e.source}-${e.target}`, source: e.source, target: e.target,
-      animated: false,
-      style: { stroke: color.border, strokeWidth: clamp(e.weight * 0.6, 0.8, 3) },
-      data: { weight: e.weight },
-    }));
+    .map((e) => {
+      const humanDefined = e.type === "USER_DEFINED";
+      return {
+        id: `e-${e.source}-${e.target}`, source: e.source, target: e.target,
+        animated: false,
+        style: {
+          stroke: humanDefined ? EDGE_TYPE_COLORS.USER_DEFINED : color.border,
+          strokeWidth: humanDefined ? 2.2 : clamp(e.weight * 0.6, 0.8, 3),
+          ...(humanDefined ? { strokeDasharray: "7 4" } : {}),
+        },
+        label: humanDefined ? e.binding : undefined,
+        labelStyle: humanDefined ? { fill: "#a78bfa", fontSize: 9, fontWeight: 700 } : undefined,
+        labelBgStyle: humanDefined ? { fill: "rgba(20,15,35,0.94)" } : undefined,
+        labelBgPadding: humanDefined ? [4, 2] as [number, number] : undefined,
+        data: { weight: e.weight, type: e.type, isHumanDefined: humanDefined },
+      };
+    });
 
   return { nodes: detailNodes, edges: detailEdges };
 }

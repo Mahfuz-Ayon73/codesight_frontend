@@ -165,7 +165,7 @@ function FileCardNode({ data, selected }: NodeProps) {
           {/* Text */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className={`text-[11px] font-semibold truncate leading-tight ${isLight ? "text-slate-900" : "text-zinc-100"}`}>
+              <span className={`text-[11px] font-semibold truncate leading-tight ${isLight ? "text-black" : "text-zinc-100"}`}>
                 {fileName}
               </span>
               {ext && (
